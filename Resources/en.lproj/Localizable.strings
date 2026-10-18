@@ -178,6 +178,9 @@
 "共 %@ 个视频" = "%@ videos";
 "收藏夹是空的" = "This folder is empty";
 "播放失败" = "Playback failed";
+"Hi-Res 无损" = "Hi-Res Lossless";
+"杜比全景声" = "Dolby Atmos";
+"标准音质" = "Standard audio";
 "网络跟不上 %@，已切到 %@" = "Network too slow for %1$@ — switched to %2$@";
 "网络恢复，已切回 %@" = "Network recovered — back to %@";
 "视频" = "Video";
@@ -207,8 +210,9 @@
 "%.0f 秒" = "%.0f s";
 "画质增强" = "Picture enhancement";
 "画面没有放大，或是 HDR 视频，暂不处理" = "standing by — the picture isn't enlarged, or the video is HDR";
-"自动" = "auto";
 "未生效" = "inactive";
+"播放无损 / 杜比音轨时保持原声，不做处理" = "off while a lossless / Dolby track plays";
+"自动" = "auto";
 "暂停 空格" = "Pause  Space";
 "播放 空格" = "Play  Space";
 "弹幕 D" = "Danmaku  D";
@@ -218,6 +222,8 @@
 "应用内全屏 T" = "Fill Window  T";
 "退出全屏 F" = "Exit Full Screen  F";
 "屏幕全屏 F" = "Full Screen  F";
+"正在播放%@音轨（%@），点击切回标准音质" = "Playing the %@ track (%@); click for standard audio";
+"这个视频有%@音轨，点击开启" = "This video has a %@ track; click to turn it on";
 "清晰度" = "Quality";
 "清晰度 · 手动选择" = "Quality · chosen manually";
 "清晰度 · 按「%@」策略自动选择" = "Quality · automatic (“%@” strategy)";
@@ -295,6 +301,9 @@
 "完整" = "Full";
 "柔和" = "Soft";
 "转成 SDR" = "SDR";
+"Hi-Res 无损优先" = "Hi-Res lossless first";
+"杜比全景声优先" = "Dolby Atmos first";
+"标准" = "Standard";
 "悬停时显示" = "On hover";
 "极致" = "Maximum";
 "高清" = "HD";
@@ -322,9 +331,11 @@
 "支持" = "yes";
 "不支持" = "no";
 "画面显示得比视频本身大时，在本机放大补细节：720P 及以下先用 AI 超分，再用 MetalFX 放大到屏幕像素；HDR 视频不处理" = "When the picture is shown larger than the video itself, upscale it on this Mac: 720p and below goes through AI super resolution first, then MetalFX scales to the screen's pixels. HDR videos are left as they are";
+"音质" = "Audio quality";
+"视频有 Hi-Res 无损（FLAC）或杜比全景声音轨时优先播放哪一个；需要大会员。也可以点播放器底栏的音质标记临时切换" = "Which track to prefer when a video has Hi-Res lossless (FLAC) or Dolby Atmos audio; needs a Premium membership. You can also switch with the audio mark in the player's bottom bar";
 "按 B 站测得的响度把每个视频调到相近的音量，切换视频不用再调音量" = "Uses bilibili's loudness measurements to play every video at a similar volume, so you don't reach for the volume between videos";
 "突出对白、压低背景声，适合口播、访谈和 Vlog" = "Brings dialogue forward and pushes background sound back; good for talks, interviews and vlogs";
-"开启音效后，音频会先整段下载，再与画面同步播放；起播可能慢 1–2 秒" = "With audio effects on, the audio is downloaded in full and kept in sync with the picture; playback may take 1–2 s longer to start";
+"开启音效后，音频会先整段下载，再与画面同步播放；起播可能慢 1–2 秒。Hi-Res 无损和杜比全景声音轨保持原声，不做处理" = "With audio effects on, the audio is downloaded in full and kept in sync with the picture; playback may take 1–2 s longer to start. Hi-Res lossless and Dolby Atmos tracks play untouched";
 "从上次观看的位置继续播放" = "Resume where you left off";
 "同步观看历史到哔哩哔哩账号" = "Sync watch history to your bilibili account";
 "和官方客户端共用历史记录与续播进度" = "Shares history and resume points with the official apps";

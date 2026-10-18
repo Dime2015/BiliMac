@@ -81,7 +81,7 @@ final class HLSStream {
         let peak = max(Int(Double(bw) * 1.2), peakRate(video) + peakRate(audio))
         var s = "#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n"
         if audio != nil {
-            s += "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"Audio\",DEFAULT=YES,AUTOSELECT=YES,CHANNELS=\"2\",URI=\"audio.m3u8\"\n"
+            s += "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"Audio\",DEFAULT=YES,AUTOSELECT=YES,CHANNELS=\"\(audio?.dash.codecs.hasPrefix("ec-3") == true ? "16/JOC" : "2")\",URI=\"audio.m3u8\"\n"
         }
         if let base = video.hdr?.codecs { codecs = base + (audio.map { "," + $0.dash.codecs } ?? "") }
         s += "#EXT-X-STREAM-INF:BANDWIDTH=\(peak),AVERAGE-BANDWIDTH=\(bw),CODECS=\"\(codecs)\",RESOLUTION=\(v.width)x\(v.height)\(fps)"

@@ -89,6 +89,20 @@ enum HDRBrightness: String, CaseIterable, Identifiable {
     }
 }
 
+/// Which audio track to play when a video has more than the standard AAC ones.
+enum AudioPref: String, CaseIterable, Identifiable {
+    /// Hi-Res 无损 (FLAC) first, then 杜比全景声.
+    case hiRes, dolby, standard
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .hiRes: return L("Hi-Res 无损优先")
+        case .dolby: return L("杜比全景声优先")
+        case .standard: return L("标准")
+        }
+    }
+}
+
 /// Danmaku-density heat curve above the progress bar (YouTube "most replayed" style).
 enum HeatMode: String, CaseIterable, Identifiable {
     case hover, always, off
@@ -181,6 +195,7 @@ final class AppSettings: ObservableObject {
     @Published var infoOverlay: InfoOverlayMode { didSet { d.set(infoOverlay.rawValue, forKey: "infoOverlay") } }
     @Published var heatMode: HeatMode { didSet { d.set(heatMode.rawValue, forKey: "heatMode") } }
     // 音效
+    @Published var audioPref: AudioPref { didSet { d.set(audioPref.rawValue, forKey: "audioPref") } }
     @Published var audioLoudness: Bool { didSet { d.set(audioLoudness, forKey: "audioLoudness") } }
     @Published var audioVoice: Bool { didSet { d.set(audioVoice, forKey: "audioVoice") } }
     /// 画质增强 (super resolution) when the picture is shown larger than the source.
@@ -244,6 +259,7 @@ final class AppSettings: ObservableObject {
         infoOverlay = InfoOverlayMode(rawValue: d.string(forKey: "infoOverlay") ?? "") ?? .auto
         heatMode = HeatMode(rawValue: d.string(forKey: "heatMode") ?? "") ?? .hover
         audioLoudness = b("audioLoudness", false)
+        audioPref = AudioPref(rawValue: d.string(forKey: "audioPref") ?? "") ?? .hiRes
         audioVoice = b("audioVoice", false)
         superResolution = b("superResolution", false)
         appearance = AppAppearance(rawValue: d.string(forKey: "appearance") ?? "") ?? .dark

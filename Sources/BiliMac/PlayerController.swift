@@ -55,6 +55,12 @@ final class PlayerController: ObservableObject {
             audioFollower.stop()
             return false
         }
+        // Hi-Res 无损 / 杜比全景声 play untouched: too big to fetch whole quickly, and the point is the original sound.
+        guard audioKind == .standard else {
+            log("audio fx: skipped for \(track.dash.codecName) track")
+            audioFollower.stop()
+            return false
+        }
         // Keep memory sane: skip files over ~120 MB (very long videos).
         let duration = info?.duration ?? 0
         guard Double(track.dash.bandwidth) / 8 * max(duration, 60) < 120_000_000 else {
@@ -169,6 +175,10 @@ final class PlayerController: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] l, v in self?.audioSettingsChanged(loudness: l, voice: v) }
             .store(in: &bag)
+        settings.$audioPref.dropFirst().removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] pref in self?.audioPrefChanged(pref) }
+            .store(in: &bag)
         // Dolby Vision played the official way or with its metadata: only matters for HDR tracks.
         settings.$dolbyVisionOfficial.dropFirst().removeDuplicates()
             .receive(on: RunLoop.main)
@@ -255,7 +265,7 @@ final class PlayerController: ObservableObject {
                 }
                 var play = autoplay
                 if let t = Env.startAt { start = t; play = false }
-                try await self.attach(video: v, audio: info.bestAudio, at: start, play: play)
+                try await self.attach(video: v, audio: info.pickAudio(self.settings.audioPref), at: start, play: play)
             } catch {
                 guard !Task.isCancelled else { return }
                 self.phase = .failed(error.localizedDescription)
@@ -296,6 +306,11 @@ final class PlayerController: ObservableObject {
                 case .readyToPlay:
                     if self.startupTime == nil { self.startupTime = Date().timeIntervalSince(self.loadStarted) }
                     self.phase = .ready
+                    if self.audioKind != .standard, !self.audioFollower.active {
+                        // Confirms the lossless / Dolby track is really being decoded, not silently dropped.
+                        let audible = it.tracks.contains { $0.assetTrack?.mediaType == .audio && $0.isEnabled }
+                        log("\(self.bvid) \(self.audio?.codecName ?? "") audio track \(audible ? "playing" : "missing")")
+                    }
                 case .failed:
                     self.phase = .failed(err?.localizedDescription ?? L("播放失败"))
                     log("\(self.bvid) item failed: \(String(describing: err))")
@@ -336,6 +351,30 @@ final class PlayerController: ObservableObject {
         Task {
             do { try await attach(video: v, audio: audio, at: t.isFinite ? t : 0, play: wasPlaying) }
             catch { phase = .failed(error.localizedDescription) }
+        }
+    }
+
+    /// Hi-Res 无损 / 杜比全景声 / standard: what the current audio track is.
+    enum AudioKind { case hiRes, dolby, standard }
+    var audioKind: AudioKind {
+        guard let a = audio, let info else { return .standard }
+        if a == info.flac { return .hiRes }
+        if a == info.dolby { return .dolby }
+        return .standard
+    }
+
+    private func audioPrefChanged(_ pref: AudioPref) {
+        guard let info, let v = video, let a = info.pickAudio(pref), a != audio else { return }
+        let t = player.currentTime().seconds
+        let wasPlaying = player.rate != 0
+        Task {
+            do { try await attach(video: v, audio: a, at: t.isFinite ? t : 0, play: wasPlaying) }
+            catch { phase = .failed(error.localizedDescription) }
+            switch audioKind {
+            case .hiRes: flash("waveform", L("Hi-Res 无损"))
+            case .dolby: flash("hifispeaker.2.fill", L("杜比全景声"))
+            case .standard: flash("speaker.wave.2.fill", L("标准音质"))
+            }
         }
     }
 
@@ -605,14 +644,15 @@ final class PlayerController: ObservableObject {
             out.append(EnhancementBadge(icon: "sparkles", value: short, active: engine != nil,
                                         help: L("画质增强") + L("：") + (superResStatus ?? L("画面没有放大，或是 HDR 视频，暂不处理"))))
         }
+        let fxOff = audioKind == .standard ? L("未生效") : L("播放无损 / 杜比音轨时保持原声，不做处理")
         if settings.audioLoudness {
             let g = info?.loudnessGainDB.map { String(format: "%+.1f", $0) }
             out.append(EnhancementBadge(icon: "speaker.wave.2.fill", value: audioFollower.active ? (g ?? L("自动")) : nil, active: audioFollower.active,
-                                        help: L("响度均衡") + L("：") + (audioFollower.active ? (g.map { $0 + " dB" } ?? L("自动")) : L("未生效"))))
+                                        help: L("响度均衡") + L("：") + (audioFollower.active ? (g.map { $0 + " dB" } ?? L("自动")) : fxOff)))
         }
         if settings.audioVoice {
             out.append(EnhancementBadge(icon: "person.wave.2.fill", value: nil, active: audioFollower.active,
-                                        help: L("人声增强") + (audioFollower.active ? "" : L("：") + L("未生效"))))
+                                        help: L("人声增强") + (audioFollower.active ? "" : L("：") + fxOff)))
         }
         if settings.danmakuOn, settings.danmakuAvoidPeople {
             out.append(EnhancementBadge(icon: "person.fill.viewfinder", value: nil, active: true, help: L("防挡人物")))

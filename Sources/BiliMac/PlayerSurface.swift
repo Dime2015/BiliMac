@@ -484,6 +484,7 @@ struct ControlsBar: View {
                 if let accessory { accessory.padding(.leading, 12) }
                 Spacer()
                 EnhancementButton(controller: controller).padding(.trailing, 2)
+                AudioBadge(controller: controller)
                 QualityPicker(controller: controller)
                 SpeedPicker(controller: controller).padding(.trailing, 4)
                 ChromeIcon(icon: settings.danmakuOn ? "text.bubble.fill" : "text.bubble", help: L("弹幕 D"), active: settings.danmakuOn) {
@@ -512,6 +513,37 @@ struct ControlsBar: View {
         // No background here even when solid: an opaque bar would turn the heat curve, which pokes
         // up over the picture, black. The outside layout paints black behind the whole player.
         .contentShape(Rectangle())
+    }
+}
+
+/// Hi-Res 无损 / 杜比全景声 mark, shown when the video has such a track; click to switch it on or off.
+private struct AudioBadge: View {
+    @ObservedObject var controller: PlayerController
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        if let info = controller.info, info.flac != nil || info.dolby != nil {
+            let kind = controller.audioKind
+            // What the badge stands for: the track playing, else the one a click would turn on.
+            let dolby = kind == .dolby || (kind == .standard && (info.flac == nil || settings.audioPref == .dolby && info.dolby != nil))
+            let on = kind != .standard
+            Button {
+                if on { settings.audioPref = .standard } else { settings.audioPref = dolby ? .dolby : .hiRes }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: dolby ? "hifispeaker.2.fill" : "waveform").font(.system(size: 11, weight: .bold))
+                    Text(dolby ? L("杜比全景声") : L("Hi-Res 无损")).font(.system(size: 12, weight: .bold))
+                }
+                .foregroundStyle(on ? Theme.pink : .white.opacity(0.5))
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(.white.opacity(0.14), in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.pressable)
+            .help(on ? Lf("正在播放%@音轨（%@），点击切回标准音质", dolby ? L("杜比全景声") : L("Hi-Res 无损"), controller.audio.map { "\($0.codecName) \($0.bandwidth / 1000) kbps" } ?? "")
+                     : Lf("这个视频有%@音轨，点击开启", dolby ? L("杜比全景声") : L("Hi-Res 无损")))
+        }
     }
 }
 

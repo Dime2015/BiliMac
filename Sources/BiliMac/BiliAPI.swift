@@ -20,6 +20,7 @@ struct DashTrack: Hashable {
         if codecs.hasPrefix("av01") { return "AV1" }
         if codecs.hasPrefix("mp4a") { return "AAC" }
         if codecs.hasPrefix("ec-3") { return "E-AC-3" }
+        if codecs.hasPrefix("ac-3") { return "AC-3" }
         if codecs.hasPrefix("fLaC") || codecs.hasPrefix("flac") { return "FLAC" }
         return codecs
     }
@@ -35,6 +36,9 @@ struct QualityOption: Hashable, Identifiable {
 struct PlayInfo {
     let videos: [DashTrack]
     let audios: [DashTrack]
+    /// Hi-Res 无损 (FLAC) and 杜比全景声 (E-AC-3) tracks, when the video and account have them.
+    var flac: DashTrack? = nil
+    var dolby: DashTrack? = nil
     let options: [QualityOption]
     let lastPlayTime: Double?
     let lastPlayCid: Int?
@@ -75,6 +79,14 @@ struct PlayInfo {
     }
 
     var bestAudio: DashTrack? { audios.max { $0.bandwidth < $1.bandwidth } }
+
+    func pickAudio(_ pref: AudioPref) -> DashTrack? {
+        switch pref {
+        case .hiRes: return flac ?? dolby ?? bestAudio
+        case .dolby: return dolby ?? flac ?? bestAudio
+        case .standard: return bestAudio
+        }
+    }
 }
 
 let qualityNames: [Int: String] = [
@@ -645,7 +657,10 @@ actor BiliAPI {
         }
         options.sort { $0.qn > $1.qn }
         let last = d.int("last_play_time").map { Double($0) / 1000 }
-        return PlayInfo(videos: videos, audios: audios, options: options,
+        return PlayInfo(videos: videos, audios: audios,
+                        flac: dash.obj("flac")?.obj("audio").flatMap(Self.track),
+                        dolby: dash.obj("dolby")?.arr("audio").compactMap(Self.track).first,
+                        options: options,
                         lastPlayTime: (last ?? 0) > 0 ? last : nil, lastPlayCid: d.int("last_play_cid"),
                         duration: Double(dash.int("duration") ?? 0),
                         loudnessGainDB: d.obj("volume").flatMap { v in

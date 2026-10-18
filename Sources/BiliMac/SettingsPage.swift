@@ -236,11 +236,14 @@ private struct PlaybackSection: View {
             ToggleRow(title: L("画质增强（超分辨率）"),
                       subtitle: L("画面显示得比视频本身大时，在本机放大补细节：720P 及以下先用 AI 超分，再用 MetalFX 放大到屏幕像素；HDR 视频不处理"),
                       isOn: $s.superResolution)
+            Row(title: L("音质"), subtitle: L("视频有 Hi-Res 无损（FLAC）或杜比全景声音轨时优先播放哪一个；需要大会员。也可以点播放器底栏的音质标记临时切换")) {
+                SlidingChips(options: AudioPref.allCases.map { ($0, $0.label) }, selection: $s.audioPref)
+            }
             ToggleRow(title: L("响度均衡"), subtitle: L("按 B 站测得的响度把每个视频调到相近的音量，切换视频不用再调音量"),
                       isOn: $s.audioLoudness)
             ToggleRow(title: L("人声增强"), subtitle: L("突出对白、压低背景声，适合口播、访谈和 Vlog"), isOn: $s.audioVoice)
             if s.audioLoudness || s.audioVoice {
-                Text(L("开启音效后，音频会先整段下载，再与画面同步播放；起播可能慢 1–2 秒"))
+                Text(L("开启音效后，音频会先整段下载，再与画面同步播放；起播可能慢 1–2 秒。Hi-Res 无损和杜比全景声音轨保持原声，不做处理"))
                     .font(.system(size: 12)).foregroundStyle(Theme.text3)
                     .padding(.vertical, 8)
             }
