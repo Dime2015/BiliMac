@@ -263,6 +263,8 @@ T = {
 "开启音效后，音频会先整段下载，再与画面同步播放；起播可能慢 1–2 秒": ("With audio effects on, the audio is downloaded in full and kept in sync with the picture; playback may take 1–2 s longer to start", "音声エフェクトがオンの間は、音声を丸ごとダウンロードしてから映像と同期して再生します。再生開始が 1〜2 秒遅くなることがあります"),
 "外观：%@": ("Appearance: %@", "外観：%@"),
 "更多": ("More", "その他"),
+"杜比视界：按官方方式播放": ("Dolby Vision: play like the official app", "ドルビービジョン：公式アプリと同じ再生方法"),
+"忽略杜比视界的动态元数据、按 HLG / HDR10 基础层播放，更亮，和官方客户端一致；关闭后由系统按杜比元数据适配屏幕": ("Ignores the Dolby Vision dynamic metadata and plays the HLG / HDR10 base layer — brighter, matching the official client. Off: macOS maps it to the display using the Dolby metadata", "ドルビービジョンの動的メタデータを使わず、HLG / HDR10 のベースレイヤーで再生します。明るく、公式クライアントと同じ見え方です。オフにすると、macOS がドルビーのメタデータで画面に合わせて調整します"),
 "完整": ("Full", "最大"),
 "柔和": ("Soft", "控えめ"),
 "转成 SDR": ("SDR", "SDR に変換"),

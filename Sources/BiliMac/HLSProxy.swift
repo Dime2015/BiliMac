@@ -43,6 +43,8 @@ final class HLSStream {
         let segments: [Segment]
         /// HDR signalling for the master playlist (video only).
         var hdr: HDRSignal? = nil
+        /// Bytes to overwrite as the file streams through (absolute offset → byte).
+        var patches: [Int: UInt8] = [:]
     }
 
     let id: String
@@ -210,10 +212,16 @@ final class HLSProxy: NSObject {
                     guard code == 206 || code == 200 else { throw APIError(description: "sidx HTTP \(code) from \(u.host ?? "")") }
                     let skip = d.indexRange.lowerBound - lo
                     let segs = try SIDX.parse(data.dropFirst(skip).prefix(d.indexRange.count), anchor: d.indexRange.upperBound + 1)
-                    let hdr = withInit ? await HDRSignal.read(init: data.prefix(skip), codecs: d.codecs) : nil
-                    if let hdr { log("hdr: \(hdr.videoRange) \(hdr.supplementalCodecs ?? "") \(hdr.codecs ?? "")") }
+                    var hdr = withInit ? await HDRSignal.read(init: data.prefix(skip), codecs: d.codecs) : nil
+                    var patches: [Int: UInt8] = [:]
+                    if let h = hdr, let off = h.dvTagOffset, AppSettings.shared.dolbyVisionOfficial {
+                        // Rename the Dolby Vision box to "free": players then see a plain HLG / HDR10 stream.
+                        for (i, byte) in Array("free".utf8).enumerated() { patches[lo + off + i] = byte }
+                        hdr = h.withoutDolbyVision()
+                    }
+                    if let hdr { log("hdr: \(hdr.videoRange) \(hdr.supplementalCodecs ?? "") \(hdr.codecs ?? "")\(patches.isEmpty ? "" : " (Dolby metadata ignored)")") }
                     // Put the URL that worked first.
-                    return .init(dash: d, urls: [u] + urls.filter { $0 != u }.uniqued(), segments: segs, hdr: hdr)
+                    return .init(dash: d, urls: [u] + urls.filter { $0 != u }.uniqued(), segments: segs, hdr: hdr, patches: patches)
                 } catch {
                     lastError = error
                     log("sidx fetch failed (\(u.host ?? "")): \(error)")
@@ -272,7 +280,7 @@ final class HLSProxy: NSObject {
         case "audio.m3u8":
             guard let a = s.audio else { return respond(c, 404, "no audio") }
             respond(c, 200, s.mediaPlaylist(a, file: "audio.m4s"), type: "application/vnd.apple.mpegurl", head: method == "HEAD")
-        case "video.m4s": proxy(c, urls: s.video.urls, range: headers["range"], label: "\(s.id)/v", stats: s.stats, video: true)
+        case "video.m4s": proxy(c, urls: s.video.urls, range: headers["range"], label: "\(s.id)/v", stats: s.stats, video: true, patches: s.video.patches)
         case "audio.m4s":
             guard let a = s.audio else { return respond(c, 404, "no audio") }
             if let data = s.audioData { return serve(c, data, range: headers["range"], head: method == "HEAD") }
@@ -350,13 +358,19 @@ final class HLSProxy: NSObject {
         var bytes = 0
         let started = Date()
         var closed = false
+        var patches: [Int: UInt8] = [:]
+        /// File offset of the first byte this pipe sends.
+        var start = 0
         init(conn: NWConnection, urls: [URL], range: String?, label: String, stats: StreamStats?, isVideo: Bool) {
             self.conn = conn; self.urls = urls; self.range = range; self.label = label; self.stats = stats; self.isVideo = isVideo
+            if let range, range.hasPrefix("bytes="), let a = Int(range.dropFirst(6).split(separator: "-").first ?? "") { start = a }
         }
     }
 
-    private func proxy(_ c: NWConnection, urls: [URL], range: String?, label: String, stats: StreamStats?, video: Bool) {
+    private func proxy(_ c: NWConnection, urls: [URL], range: String?, label: String, stats: StreamStats?, video: Bool,
+                       patches: [Int: UInt8] = [:]) {
         let p = Pipe(conn: c, urls: urls, range: range, label: label, stats: stats, isVideo: video)
+        p.patches = patches
         c.stateUpdateHandler = { [weak self, weak p] st in
             switch st {
             case .failed, .cancelled:
@@ -439,6 +453,13 @@ extension HLSProxy: URLSessionDataDelegate {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         queue.async { [self] in
             guard let p = pipes[dataTask.taskIdentifier], !p.closed else { return }
+            var data = data
+            if !p.patches.isEmpty {
+                let base = p.start + p.bytes
+                for (off, byte) in p.patches where off >= base && off < base + data.count {
+                    data[data.startIndex + off - base] = byte
+                }
+            }
             p.bytes += data.count
             record(bytes: data.count)
             p.stats?.add(bytes: data.count, host: dataTask.originalRequest?.url?.host ?? "?")
@@ -539,15 +560,21 @@ struct HDRSignal {
     var supplementalCodecs: String? = nil
     /// Replaces the video entry in CODECS (Dolby Vision profile 5 has no HDR10 / HLG base layer).
     var codecs: String? = nil
+    /// Where the Dolby Vision configuration box's type sits in the init data, for profiles whose
+    /// base layer plays on its own (8.1 / 8.4); nil otherwise.
+    var dvTagOffset: Int? = nil
+
+    /// The same stream played the official client's way: base layer only, Dolby metadata ignored.
+    func withoutDolbyVision() -> HDRSignal { HDRSignal(videoRange: videoRange) }
 
     /// Reads the init segment: the transfer function via AVFoundation, the Dolby Vision box by hand.
     /// nil for SDR tracks.
     static func read(init data: Data, codecs: String) async -> HDRSignal? {
-        var dv: (profile: Int, level: Int, compat: Int)?
+        var dv: (profile: Int, level: Int, compat: Int, offset: Int)?
         for tag in ["dvvC", "dvcC", "dvwC"] {
             if let r = data.range(of: Data(tag.utf8)), data.count >= r.upperBound + 5 {
                 let b = [UInt8](data[r.upperBound ..< r.upperBound + 5])
-                dv = (Int(b[2] >> 1) & 0x7F, (Int(b[2] & 1) << 5) | Int(b[3] >> 3), Int(b[4] >> 4))
+                dv = (Int(b[2] >> 1) & 0x7F, (Int(b[2] & 1) << 5) | Int(b[3] >> 3), Int(b[4] >> 4), r.lowerBound - data.startIndex)
                 break
             }
         }
@@ -568,8 +595,8 @@ struct HDRSignal {
         let tag = String(format: "dvh1.%02d.%02d", dv.profile, dv.level)
         switch (dv.profile, dv.compat) {
         case (5, _): return HDRSignal(videoRange: "PQ", codecs: tag)
-        case (8, 4): return HDRSignal(videoRange: range ?? "HLG", supplementalCodecs: tag + "/db4h", codecs: base == codecs ? nil : base)
-        case (8, 1): return HDRSignal(videoRange: range ?? "PQ", supplementalCodecs: tag + "/db1p")
+        case (8, 4): return HDRSignal(videoRange: range ?? "HLG", supplementalCodecs: tag + "/db4h", codecs: base == codecs ? nil : base, dvTagOffset: dv.offset)
+        case (8, 1): return HDRSignal(videoRange: range ?? "PQ", supplementalCodecs: tag + "/db1p", dvTagOffset: dv.offset)
         case (8, 2): return range.map { HDRSignal(videoRange: $0, supplementalCodecs: tag + "/db2g") }
         default: return range.map { HDRSignal(videoRange: $0) }
         }

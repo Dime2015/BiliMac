@@ -142,6 +142,9 @@ final class AppSettings: ObservableObject {
     @Published var qualityPreset: QualityPreset { didSet { d.set(qualityPreset.rawValue, forKey: "qualityPreset") } }
     @Published var preferHDR: Bool { didSet { d.set(preferHDR, forKey: "preferHDR") } }
     @Published var hdrBrightness: HDRBrightness { didSet { d.set(hdrBrightness.rawValue, forKey: "hdrBrightness") } }
+    /// Play Dolby Vision profile 8 like the official client: the HLG / HDR10 base layer without the
+    /// Dolby dynamic metadata (brighter); off lets macOS map it to the display with the metadata.
+    @Published var dolbyVisionOfficial: Bool { didSet { d.set(dolbyVisionOfficial, forKey: "dolbyVisionOfficial") } }
     /// Step down one entry in the order when playback keeps stalling.
     @Published var autoDowngrade: Bool { didSet { d.set(autoDowngrade, forKey: "autoDowngrade") } }
     var qualityOrder: [Int] { qualityPreset.order(hdr: preferHDR) }
@@ -204,7 +207,13 @@ final class AppSettings: ObservableObject {
         cdnNode = CDNNode(rawValue: d.string(forKey: "cdnNode") ?? "") ?? .c08
         qualityPreset = QualityPreset(rawValue: d.string(forKey: "qualityPreset") ?? "") ?? .max
         preferHDR = b("preferHDR", false)
-        hdrBrightness = HDRBrightness(rawValue: d.string(forKey: "hdrBrightness") ?? "") ?? .auto
+        // 1.1.x defaulted to 自动 (soft in a window); the default is now 完整, like the official client.
+        if !d.bool(forKey: "migratedHDRFull") {
+            if d.string(forKey: "hdrBrightness") == HDRBrightness.auto.rawValue { d.removeObject(forKey: "hdrBrightness") }
+            d.set(true, forKey: "migratedHDRFull")
+        }
+        hdrBrightness = HDRBrightness(rawValue: d.string(forKey: "hdrBrightness") ?? "") ?? .full
+        dolbyVisionOfficial = b("dolbyVisionOfficial", true)
         autoDowngrade = b("autoDowngrade", true)
         codec = CodecPref(rawValue: d.string(forKey: "codec") ?? "") ?? .auto
         resumePlayback = b("resumePlayback", true)

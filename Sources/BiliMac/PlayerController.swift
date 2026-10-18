@@ -167,6 +167,11 @@ final class PlayerController: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] l, v in self?.audioSettingsChanged(loudness: l, voice: v) }
             .store(in: &bag)
+        // Dolby Vision played the official way or with its metadata: only matters for HDR tracks.
+        settings.$dolbyVisionOfficial.dropFirst().removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in if self?.isHDR == true { self?.reloadStream() } }
+            .store(in: &bag)
         player.volume = settings.volume
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4), queue: .main) { [weak self] t in
             MainActor.assumeIsolated { self?.tick(t.seconds) }
@@ -232,7 +237,9 @@ final class PlayerController: ObservableObject {
                    info.lastPlayCid == nil || info.lastPlayCid == cid, t > 5, info.duration == 0 || t < info.duration - 10 {
                     start = t
                 }
-                try await self.attach(video: v, audio: info.bestAudio, at: start, play: autoplay)
+                var play = autoplay
+                if let t = Env.startAt { start = t; play = false }
+                try await self.attach(video: v, audio: info.bestAudio, at: start, play: play)
             } catch {
                 guard !Task.isCancelled else { return }
                 self.phase = .failed(error.localizedDescription)

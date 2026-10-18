@@ -223,6 +223,9 @@ private struct PlaybackSection: View {
                 subtitle: L("HDR 和杜比视界视频的高光可以比界面白色亮很多倍。自动：窗口里柔和、全屏时完整；转成 SDR 则和普通视频一样亮")) {
                 SlidingChips(options: HDRBrightness.allCases.map { ($0, $0.label) }, selection: $s.hdrBrightness)
             }
+            ToggleRow(title: L("杜比视界：按官方方式播放"),
+                      subtitle: L("忽略杜比视界的动态元数据、按 HLG / HDR10 基础层播放，更亮，和官方客户端一致；关闭后由系统按杜比元数据适配屏幕"),
+                      isOn: $s.dolbyVisionOfficial)
             ToggleRow(title: L("卡顿时自动降一档"),
                       subtitle: L("45 秒内卡顿两次，或一次缓冲超过 4 秒，就按上面的顺序降一档并提示；在播放器里手动选的画质不会被降"),
                       isOn: $s.autoDowngrade)
