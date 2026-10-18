@@ -5,7 +5,7 @@ import SwiftUI
 
 enum Route: Hashable {
     case home, featured, dynamics, history, watchLater, favorites(Int?), search(String), video(VideoCard), space(Int),
-         collection(SpaceCollection), settings
+         collection(SpaceCollection), messages, settings
 
     /// Pages that use the collapsed icon rail instead of the full sidebar.
     var usesRail: Bool {
@@ -17,7 +17,7 @@ enum Route: Hashable {
 
     var needsLogin: Bool {
         switch self {
-        case .dynamics, .history, .watchLater, .favorites: return true
+        case .dynamics, .history, .watchLater, .favorites, .messages: return true
         default: return false
         }
     }
@@ -139,6 +139,7 @@ final class AppModel: ObservableObject {
             if r == "featured" { go(.featured) }
             else if r == "settings" { go(.settings) }
             else if r == "dynamics" { go(.dynamics) }
+            else if r == "messages" { go(.messages) }
             else if r.hasPrefix("search:") { submitSearch(String(r.dropFirst(7))) }
             else if r.hasPrefix("video:") { open(VideoCard(bvid: String(r.dropFirst(6)), title: "", cover: nil, owner: "")) }
             else if r.hasPrefix("space:"), let mid = Int(r.dropFirst(6)) { go(.space(mid)) }
@@ -333,8 +334,10 @@ final class AppModel: ObservableObject {
         do { account = try await BiliAPI.shared.nav() } catch { log("nav: \(error)") }
         if account.loggedIn, let mid = account.mid {
             favFolders = (try? await BiliAPI.shared.favFolders(mid: mid)) ?? []
+            MessageCenter.shared.startPolling()
         } else {
             favFolders = []
+            MessageCenter.shared.stop()
         }
     }
 

@@ -222,6 +222,9 @@ actor BiliAPI {
         return obj.obj("data") ?? obj.obj("result") ?? [:]
     }
 
+    /// The whole response, for endpoints whose `data` is not an object.
+    func rawJSON(_ url: URL) async throws -> (json: JSON, response: HTTPURLResponse) { try await getJSON(url) }
+
     func call(_ url: URL) async throws -> JSON {
         let (obj, _) = try await getJSON(url)
         return try check(obj, url.path)

@@ -160,7 +160,7 @@ private struct PageContent: View {
     var body: some View {
         let r = route
         if r.needsLogin && !app.account.loggedIn {
-            MainPanel { LoginPromptView(what: L("动态、历史记录、稍后再看和收藏夹")) }
+            MainPanel { LoginPromptView(what: r == .messages ? L("消息") : L("动态、历史记录、稍后再看和收藏夹")) }
         } else {
             switch r {
             case .home: HomePage()
@@ -181,6 +181,7 @@ private struct PageContent: View {
                          tint: Theme.tint(hex: 0x3D2A5C, light: 0xE6DDF3))
 
 
+            case .messages: MessagesPage()
             case .settings: EmptyView()
             }
         }
@@ -283,6 +284,7 @@ struct AccountButton: View {
 
 private struct Sidebar: View {
     @EnvironmentObject var app: AppModel
+    @ObservedObject private var messages = MessageCenter.shared
     @Namespace private var ns
 
     var body: some View {
@@ -298,6 +300,7 @@ private struct Sidebar: View {
                 NavRow(icon: "house", title: L("首页"), selected: app.route == .home, ns: ns) { app.go(.home) }
                 NavRow(icon: "play.rectangle", title: L("精选"), selected: app.route == .featured, ns: ns) { app.go(.featured) }
                 NavRow(icon: "dot.radiowaves.left.and.right", title: L("动态"), selected: app.route == .dynamics, ns: ns) { app.go(.dynamics) }
+                NavRow(icon: "bell", title: L("消息"), selected: app.route == .messages, ns: ns, badge: messages.unread.total) { app.go(.messages) }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 10)
@@ -333,6 +336,7 @@ private struct NavRow: View {
     let title: String
     let selected: Bool
     let ns: Namespace.ID
+    var badge = 0
     let action: () -> Void
     @State private var hover = false
     var body: some View {
@@ -341,6 +345,7 @@ private struct NavRow: View {
                 Image(systemName: selected ? filledSymbol(icon) : icon).font(.system(size: 19, weight: .semibold)).frame(width: 24)
                 Text(title).font(.system(size: 15, weight: .bold))
                 Spacer()
+                UnreadBadge(count: badge)
             }
             .foregroundStyle(selected || hover ? Theme.text : Theme.text2)
             .padding(.horizontal, 12)
@@ -484,6 +489,7 @@ private struct AutoHideRail: View {
 
 private struct IconRail: View {
     @EnvironmentObject var app: AppModel
+    @ObservedObject private var messages = MessageCenter.shared
     @ObservedObject private var settings = AppSettings.shared
     @Namespace private var ns
     var body: some View {
@@ -495,6 +501,8 @@ private struct IconRail: View {
             RailIcon(icon: "play.rectangle", label: L("精选"), selected: app.route == .featured, ns: ns) { app.go(.featured) }
             RailIcon(icon: "dot.radiowaves.left.and.right", label: L("动态"), selected: app.route == .dynamics, ns: ns) { app.go(.dynamics) }
             RailIcon(icon: "books.vertical", label: L("历史记录"), selected: app.route == .history, ns: ns) { app.go(.history) }
+            RailIcon(icon: "bell", label: L("消息"), selected: app.route == .messages, ns: ns) { app.go(.messages) }
+                .overlay(alignment: .topTrailing) { UnreadBadge(count: messages.unread.total).scaleEffect(0.85).offset(x: 2, y: 4).allowsHitTesting(false) }
             Spacer()
             RailIcon(icon: settings.railAutoHide ? "pin" : "sidebar.left",
                      label: settings.railAutoHide ? L("固定侧栏") : L("自动隐藏侧栏"), selected: false, ns: ns) {
