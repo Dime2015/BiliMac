@@ -129,7 +129,7 @@ struct PlayerSurface<Overlay: View>: View {
                          showStrip: settings.infoOverlay != .off)
             ZStack {
                 Color.black
-                VideoLayer(player: controller.player)
+                PlayerPicture(controller: controller)
                 DanmakuOverlay(controller: controller)
                 PhaseOverlay(controller: controller)
                 FlashView(controller: controller)
@@ -173,7 +173,7 @@ struct PlayerSurface<Overlay: View>: View {
         let stripShown = chrome == .full && (settings.infoOverlay == .always || (settings.infoOverlay == .auto && show))
         ZStack {
             Color.black
-            VideoLayer(player: controller.player)
+            PlayerPicture(controller: controller)
             DanmakuOverlay(controller: controller)
 
             // Scrims live under every piece of chrome, never above it.
@@ -413,6 +413,7 @@ struct ControlsBar: View {
                     .padding(.leading, 4)
                 if let accessory { accessory.padding(.leading, 12) }
                 Spacer()
+                EnhancementButton(controller: controller).padding(.trailing, 2)
                 QualityPicker(controller: controller)
                 SpeedPicker(controller: controller).padding(.trailing, 4)
                 ChromeIcon(icon: settings.danmakuOn ? "text.bubble.fill" : "text.bubble", help: L("弹幕 D"), active: settings.danmakuOn) {
@@ -513,14 +514,12 @@ struct InfoStrip: View {
     var plain = false
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
-            let chips = controller.infoChips()
-            if !chips.isEmpty {
-                HStack(spacing: 0) {
-                    ForEach(Array(chips.enumerated()), id: \.offset) { i, c in
-                        if i > 0 { Text("  ·  ").foregroundStyle(.white.opacity(0.3)) }
-                        Text(c.label + " ").foregroundStyle(.white.opacity(0.55))
-                        Text(c.value).foregroundStyle(c.accent ? Theme.pink : .white)
-                    }
+            if !controller.infoChips().isEmpty {
+                // Show as much as fits: drop detail level by level rather than truncating with "…".
+                ViewThatFits(in: .horizontal) {
+                    row(controller.infoChips(compact: 0))
+                    row(controller.infoChips(compact: 1))
+                    row(controller.infoChips(compact: 2))
                 }
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .lineLimit(1)
@@ -529,6 +528,92 @@ struct InfoStrip: View {
                 .overlay(Capsule().strokeBorder(.white.opacity(plain ? 0 : 0.08)))
             }
         }
+    }
+
+    private func row(_ chips: [InfoChip]) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(chips.enumerated()), id: \.offset) { i, c in
+                if i > 0 { Text("  ·  ").foregroundStyle(.white.opacity(0.3)) }
+                Text(c.label + " ").foregroundStyle(.white.opacity(0.55))
+                Text(c.value).foregroundStyle(c.accent ? Theme.pink : .white)
+            }
+        }
+        .fixedSize()
+    }
+}
+
+/// Bottom-bar pill for the enhancements: what's on (pink = working now, grey = standing by),
+/// and a panel to switch each one.
+struct EnhancementButton: View {
+    @ObservedObject var controller: PlayerController
+    @ObservedObject private var settings = AppSettings.shared
+    @State private var open = false
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let badges = controller.enhancementBadges()
+            Button { withAnimation(Motion.pop) { open.toggle() } } label: {
+                HStack(spacing: 7) {
+                    if badges.isEmpty {
+                        Image(systemName: "sparkles").font(.system(size: 11, weight: .bold))
+                        Text(L("增强")).font(.system(size: 12.5, weight: .bold))
+                    } else {
+                        ForEach(badges, id: \.icon) { b in
+                            HStack(spacing: 3) {
+                                Image(systemName: b.icon).font(.system(size: 11, weight: .semibold))
+                                if let v = b.value { Text(v).font(.system(size: 11.5, weight: .semibold, design: .monospaced)) }
+                            }
+                            .foregroundStyle(b.active ? Theme.pink : .white.opacity(0.45))
+                        }
+                    }
+                }
+                .foregroundStyle(.white.opacity(0.75))
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(.white.opacity(open ? 0.22 : 0.14), in: Capsule())
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.pressable)
+            .help(badges.isEmpty ? L("画质与音效增强") : badges.map(\.help).joined(separator: "\n"))
+        }
+        .floatingPanel(id: "enhance-\(ObjectIdentifier(controller).hashValue)", isPresented: $open, placement: .above(.center)) {
+            EnhancementPanel(controller: controller).environment(\.colorScheme, .dark)
+        }
+    }
+}
+
+private struct EnhancementPanel: View {
+    @ObservedObject var controller: PlayerController
+    @ObservedObject private var settings = AppSettings.shared
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            let badges = Dictionary(uniqueKeysWithValues: controller.enhancementBadges().map { ($0.icon, $0) })
+            MenuSurface(width: 320) {
+                MenuHeader(text: L("画质与音效增强"))
+                row("sparkles", L("画质增强（超分辨率）"), badges["sparkles"], $settings.superResolution)
+                row("speaker.wave.2.fill", L("响度均衡"), badges["speaker.wave.2.fill"], $settings.audioLoudness)
+                row("person.wave.2.fill", L("人声增强"), badges["person.wave.2.fill"], $settings.audioVoice)
+                row("person.fill.viewfinder", L("防挡人物"), badges["person.fill.viewfinder"], $settings.danmakuAvoidPeople)
+            }
+        }
+    }
+
+    private func row(_ icon: String, _ title: String, _ badge: EnhancementBadge?, _ on: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(badge?.active == true ? Theme.pink : Theme.text3).frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13, weight: .medium))
+                if let badge {
+                    let detail = badge.help.components(separatedBy: L("：")).dropFirst().joined(separator: L("："))
+                    Text(detail.isEmpty ? L("工作中") : detail).font(.system(size: 11)).foregroundStyle(Theme.text3).lineLimit(2)
+                }
+            }
+            Spacer(minLength: 8)
+            Toggle("", isOn: on).toggleStyle(PinkToggleStyle()).labelsHidden().fixedSize()
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
     }
 }
 

@@ -34,6 +34,61 @@ final class PlayerController: ObservableObject {
     @Published private(set) var heat: [Double] = []
     /// People in the picture, for 防挡弹幕.
     let masker = PersonMasker()
+    let audioFX = AudioFX()
+
+    /// 画质增强: what the super-resolution layer is doing right now (stats panel), nil when idle.
+    @Published var superResStatus: String?
+    /// Size of the current video track, for deciding whether upscaling helps.
+    var pictureSourceSize: CGSize { video.map { CGSize(width: $0.width, height: $0.height) } ?? .zero }
+    /// HDR / Dolby Vision tracks keep the system's own HDR pipeline.
+    var isHDR: Bool { video.map { $0.id == 125 || $0.id == 126 } ?? false }
+
+    /// 音效处理: plays the audio in `audioFollower` (with the tap) instead of inside the HLS item.
+    let audioFollower = AudioFollower()
+
+    /// When 响度均衡 or 人声增强 is on, downloads the audio into the proxy, drops it from the HLS
+    /// playlist and gets the follower ready. Returns false (normal playback) if anything fails.
+    private func prepareAudioFX(stream s: HLSStream, previous: HLSStream?, masterURL: URL, at time: Double) async -> Bool {
+        guard settings.audioLoudness || settings.audioVoice, let track = s.audio else {
+            audioFollower.stop()
+            return false
+        }
+        // Keep memory sane: skip files over ~120 MB (very long videos).
+        let duration = info?.duration ?? 0
+        guard Double(track.dash.bandwidth) / 8 * max(duration, 60) < 120_000_000 else {
+            log("audio fx: audio too large, playing normally")
+            audioFollower.stop()
+            return false
+        }
+        do {
+            if let prev = previous, prev.audio?.dash == track.dash, let data = prev.audioData {
+                s.audioData = data
+            } else {
+                s.audioData = try await withTimeout(seconds: 10) { try await HLSProxy.shared.fetchWhole(track, stats: s.stats) }
+            }
+            s.videoOnly = true
+            audioFX.loudnessOn = settings.audioLoudness
+            audioFX.voiceOn = settings.audioVoice
+            audioFX.staticGainDB = info?.loudnessGainDB.map(Float.init)
+            try await audioFollower.prepare(url: masterURL.deletingLastPathComponent().appendingPathComponent("audio.m4s"),
+                                            fx: audioFX, at: time)
+            return true
+        } catch {
+            log("audio fx unavailable, playing normally: \(error)")
+            s.videoOnly = false
+            s.audioData = nil
+            audioFollower.stop()
+            return false
+        }
+    }
+
+    /// Settings changed: update the effect live, or re-attach when the path has to change.
+    private func audioSettingsChanged(loudness: Bool, voice: Bool) {
+        audioFX.loudnessOn = loudness
+        audioFX.voiceOn = voice
+        if (loudness || voice) != audioFollower.active, stream != nil { reloadStream() }
+    }
+
     @Published var rate: Float = 1 {
         didSet {
             player.defaultRate = rate
@@ -104,8 +159,14 @@ final class PlayerController: ObservableObject {
 
     private let settings = AppSettings.shared
 
+    private var bag = Set<AnyCancellable>()
+
     init() {
         player.automaticallyWaitsToMinimizeStalling = true
+        settings.$audioLoudness.combineLatest(settings.$audioVoice).dropFirst().removeDuplicates { $0 == $1 }
+            .receive(on: RunLoop.main)
+            .sink { [weak self] l, v in self?.audioSettingsChanged(loudness: l, voice: v) }
+            .store(in: &bag)
         player.volume = settings.volume
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4), queue: .main) { [weak self] t in
             MainActor.assumeIsolated { self?.tick(t.seconds) }
@@ -195,6 +256,7 @@ final class PlayerController: ObservableObject {
         stream = s
         video = v
         audio = a
+        let fxReady = await prepareAudioFX(stream: s, previous: old, masterURL: url, at: time)
         let item = AVPlayerItem(url: url)
         item.preferredForwardBufferDuration = 30
         masker.attach(item)
@@ -223,6 +285,7 @@ final class PlayerController: ObservableObject {
         attachedAt = Date()
         player.replaceCurrentItem(with: item)
         if time > 0 { await player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
+        if fxReady { audioFollower.follow(player) }
         if play { player.playImmediately(atRate: rate) }
         if let old { HLSProxy.shared.unregister(old.id) }
         log(String(format: "%@ p%ld %@ %@ %dx%d %@ cdn=%@", bvid, cid, shortQuality(v.id), v.codecs, v.width, v.height,
@@ -341,6 +404,7 @@ final class PlayerController: ObservableObject {
     private func teardownItem() {
         player.pause()
         player.replaceCurrentItem(with: nil)
+        audioFollower.stop()
         masker.attach(nil)
         itemObservers.removeAll()
         tokens.forEach(NotificationCenter.default.removeObserver)
@@ -397,6 +461,12 @@ final class PlayerController: ObservableObject {
             rows.append((L("视频码率"), rate))
         }
         if let a = audio { rows.append((L("音频"), "\(a.codecName) · \(a.codecs) · \(formatBitrate(Double(a.bandwidth)))")) }
+        if audioFollower.active {
+            let fx = [settings.audioLoudness ? L("响度均衡") : nil, settings.audioVoice ? L("人声增强") : nil].compactMap { $0 }
+            let gain = info?.loudnessGainDB.map { String(format: " · %+.1f dB", $0) } ?? ""
+            rows.append((L("音效"), fx.joined(separator: " + ") + gain))
+        }
+        if let sr = superResStatus { rows.append((L("超分"), sr)) }
         if let s = stream {
             let host = s.stats.lastHost ?? s.video.urls.first?.host ?? "-"
             rows.append((L("线路"), "\(settings.cdnNode.short) · \(host)"))
@@ -426,13 +496,14 @@ final class PlayerController: ObservableObject {
     }
 
     /// Items for the info strip above the video.
-    func infoChips() -> [InfoChip] {
+    /// compact 0 = everything; 1 = short quality name, no frame rate; 2 = also no resolution or audio.
+    func infoChips(compact: Int = 0) -> [InfoChip] {
         guard let v = video else { return [] }
-        var c: [InfoChip] = [InfoChip(label: L("画质"), value: qualityNames[v.id] ?? shortQuality(v.id), accent: true)]
+        var c: [InfoChip] = [InfoChip(label: L("画质"), value: compact > 0 ? shortQuality(v.id) : (qualityNames[v.id] ?? shortQuality(v.id)), accent: true)]
         let fps = Double(v.frameRate).map { String(format: " · %.0f fps", $0) } ?? ""
-        c.append(InfoChip(label: L("画面"), value: "\(v.width)×\(v.height)\(fps)"))
+        if compact < 2 { c.append(InfoChip(label: L("画面"), value: "\(v.width)×\(v.height)\(compact > 0 ? "" : fps)")) }
         c.append(InfoChip(label: v.codecName, value: formatBitrate(Double(v.bandwidth))))
-        if let a = audio { c.append(InfoChip(label: a.codecName, value: formatBitrate(Double(a.bandwidth)))) }
+        if compact < 2, let a = audio { c.append(InfoChip(label: a.codecName, value: formatBitrate(Double(a.bandwidth)))) }
         if let s = stream {
             let rates = s.stats.hostRates()
             if rates.isEmpty {
@@ -443,6 +514,39 @@ final class PlayerController: ObservableObject {
         c.append(InfoChip(label: L("缓冲"), value: String(format: L("%.0f 秒"), max(0, clock.buffered - clock.time))))
         return c
     }
+
+    /// Enhancements that are switched on, for the info strip: icon, short value, whether it's
+    /// working right now, and a tooltip.
+    func enhancementBadges() -> [EnhancementBadge] {
+        var out: [EnhancementBadge] = []
+        if settings.superResolution {
+            // superResStatus: "ML 1.5× + MetalFX · 1280x720 → 1880x1058 · 6.1 ms"
+            let engine = superResStatus?.components(separatedBy: " · ").first
+            let short = engine.map { e in e.hasPrefix("ML") ? (e.components(separatedBy: " ").dropFirst().first ?? "ML") : "FX" }
+            out.append(EnhancementBadge(icon: "sparkles", value: short, active: engine != nil,
+                                        help: L("画质增强") + L("：") + (superResStatus ?? L("画面没有放大，或是 HDR 视频，暂不处理"))))
+        }
+        if settings.audioLoudness {
+            let g = info?.loudnessGainDB.map { String(format: "%+.1f", $0) }
+            out.append(EnhancementBadge(icon: "speaker.wave.2.fill", value: audioFollower.active ? (g ?? L("自动")) : nil, active: audioFollower.active,
+                                        help: L("响度均衡") + L("：") + (audioFollower.active ? (g.map { $0 + " dB" } ?? L("自动")) : L("未生效"))))
+        }
+        if settings.audioVoice {
+            out.append(EnhancementBadge(icon: "person.wave.2.fill", value: nil, active: audioFollower.active,
+                                        help: L("人声增强") + (audioFollower.active ? "" : L("：") + L("未生效"))))
+        }
+        if settings.danmakuOn, settings.danmakuAvoidPeople {
+            out.append(EnhancementBadge(icon: "person.fill.viewfinder", value: nil, active: true, help: L("防挡人物")))
+        }
+        return out
+    }
+}
+
+struct EnhancementBadge: Hashable {
+    let icon: String
+    let value: String?
+    let active: Bool
+    let help: String
 }
 
 struct InfoChip: Hashable {

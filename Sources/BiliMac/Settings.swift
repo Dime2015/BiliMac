@@ -158,6 +158,11 @@ final class AppSettings: ObservableObject {
     @Published var chromeLayout: ChromeLayout { didSet { d.set(chromeLayout.rawValue, forKey: "chromeLayout") } }
     @Published var infoOverlay: InfoOverlayMode { didSet { d.set(infoOverlay.rawValue, forKey: "infoOverlay") } }
     @Published var heatMode: HeatMode { didSet { d.set(heatMode.rawValue, forKey: "heatMode") } }
+    // 音效
+    @Published var audioLoudness: Bool { didSet { d.set(audioLoudness, forKey: "audioLoudness") } }
+    @Published var audioVoice: Bool { didSet { d.set(audioVoice, forKey: "audioVoice") } }
+    /// 画质增强 (super resolution) when the picture is shown larger than the source.
+    @Published var superResolution: Bool { didSet { d.set(superResolution, forKey: "superResolution") } }
     @Published var appearance: AppAppearance {
         didSet {
             d.set(appearance.rawValue, forKey: "appearance")
@@ -208,6 +213,9 @@ final class AppSettings: ObservableObject {
         chromeLayout = ChromeLayout(rawValue: d.string(forKey: "chromeLayout") ?? "") ?? .outside
         infoOverlay = InfoOverlayMode(rawValue: d.string(forKey: "infoOverlay") ?? "") ?? .auto
         heatMode = HeatMode(rawValue: d.string(forKey: "heatMode") ?? "") ?? .hover
+        audioLoudness = b("audioLoudness", false)
+        audioVoice = b("audioVoice", false)
+        superResolution = b("superResolution", false)
         appearance = AppAppearance(rawValue: d.string(forKey: "appearance") ?? "") ?? .dark
         railAutoHide = b("railAutoHide", true)
         doubleClickScreenFull = b("doubleClickScreenFull", false)

@@ -46,6 +46,15 @@ final class HLSStream {
     let video: Track
     let audio: Track?
     let stats = StreamStats()
+    /// Leave audio out of the master playlist: the audio plays in its own player (音效处理).
+    var videoOnly = false
+    /// The whole audio file, once downloaded for the separate audio player; ranges are served from it.
+    private let audioLock = NSLock()
+    private var _audioData: Data?
+    var audioData: Data? {
+        get { audioLock.lock(); defer { audioLock.unlock() }; return _audioData }
+        set { audioLock.lock(); _audioData = newValue; audioLock.unlock() }
+    }
     init(id: String, video: Track, audio: Track?) { self.id = id; self.video = video; self.audio = audio }
 
     /// Peak video segment bitrate from the SIDX (bits/s).
@@ -55,6 +64,7 @@ final class HLSStream {
 
     func masterPlaylist() -> String {
         let v = video.dash
+        let audio = videoOnly ? nil : self.audio
         var codecs = v.codecs
         if let a = audio { codecs += "," + a.dash.codecs }
         let fps = Double(v.frameRate).map { String(format: ",FRAME-RATE=%.3f", $0) } ?? ""
@@ -251,9 +261,54 @@ final class HLSProxy: NSObject {
         case "video.m4s": proxy(c, urls: s.video.urls, range: headers["range"], label: "\(s.id)/v", stats: s.stats, video: true)
         case "audio.m4s":
             guard let a = s.audio else { return respond(c, 404, "no audio") }
+            if let data = s.audioData { return serve(c, data, range: headers["range"], head: method == "HEAD") }
             proxy(c, urls: a.urls, range: headers["range"], label: "\(s.id)/a", stats: s.stats, video: false)
         default: respond(c, 404, "not found")
         }
+    }
+
+    /// Serves a byte range of an in-memory file.
+    private func serve(_ c: NWConnection, _ data: Data, range: String?, head: Bool) {
+        let total = data.count
+        var lo = 0, hi = total - 1, partial = false
+        if let range, range.hasPrefix("bytes=") {
+            let spec = range.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
+            if spec.count == 2 {
+                if let a = Int(spec[0]) { lo = a; hi = Int(spec[1]) ?? total - 1 }
+                else if let n = Int(spec[1]) { lo = max(0, total - n) }   // suffix range
+                partial = true
+            }
+        }
+        hi = min(hi, total - 1)
+        guard lo <= hi else { return respond(c, 416, "range not satisfiable") }
+        var h = "HTTP/1.1 \(partial ? "206 Partial Content" : "200 OK")\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\n"
+        h += "Content-Length: \(hi - lo + 1)\r\nConnection: close\r\n"
+        if partial { h += "Content-Range: bytes \(lo)-\(hi)/\(total)\r\n" }
+        h += "\r\n"
+        var out = Data(h.utf8)
+        if !head { out.append(data.subdata(in: lo..<(hi + 1))) }
+        c.send(content: out, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in c.cancel() })
+    }
+
+    /// Downloads a whole track (the audio for 音效处理), trying each URL in turn.
+    func fetchWhole(_ t: HLSStream.Track, stats: StreamStats) async throws -> Data {
+        var lastError: Error = APIError(description: "no url")
+        for u in t.urls.uniqued() {
+            var r = URLRequest(url: u)
+            r.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+            r.setValue(biliReferer, forHTTPHeaderField: "Referer")
+            r.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+            do {
+                let (data, resp) = try await URLSession.shared.data(for: r)
+                guard let http = resp as? HTTPURLResponse, http.statusCode == 200 || http.statusCode == 206 else {
+                    lastError = APIError(description: "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)")
+                    continue
+                }
+                stats.add(bytes: data.count, host: u.host ?? "?")
+                return data
+            } catch { lastError = error }
+        }
+        throw lastError
     }
 
     private func respond(_ c: NWConnection, _ status: Int, _ body: String, type: String = "text/plain", head: Bool = false) {

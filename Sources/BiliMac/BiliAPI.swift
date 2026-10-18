@@ -39,6 +39,8 @@ struct PlayInfo {
     let lastPlayTime: Double?
     let lastPlayCid: Int?
     let duration: Double
+    /// bilibili's own loudness measurement (voice_balance): dB to reach its target, if reported.
+    var loudnessGainDB: Double? = nil
 
     /// First quality in `order` this video actually has; otherwise the best non-HDR one it has.
     func pickVideo(order: [Int], codec: CodecPref) -> DashTrack {
@@ -598,7 +600,7 @@ actor BiliAPI {
     func playInfo(bvid: String, cid: Int) async throws -> PlayInfo {
         let d = try await signedGet("https://api.bilibili.com/x/player/wbi/playurl", [
             "bvid": bvid, "cid": "\(cid)", "qn": "127", "fnval": "4048", "fnver": "0", "fourk": "1",
-            "web_location": "1315873",
+            "web_location": "1315873", "voice_balance": "1",
         ])
         guard let dash = d.obj("dash") else { throw APIError(description: L("该视频没有 DASH 流（可能是付费/番剧内容）")) }
         let videos = dash.arr("video").compactMap(Self.track)
@@ -617,7 +619,11 @@ actor BiliAPI {
         let last = d.int("last_play_time").map { Double($0) / 1000 }
         return PlayInfo(videos: videos, audios: audios, options: options,
                         lastPlayTime: (last ?? 0) > 0 ? last : nil, lastPlayCid: d.int("last_play_cid"),
-                        duration: Double(dash.int("duration") ?? 0))
+                        duration: Double(dash.int("duration") ?? 0),
+                        loudnessGainDB: d.obj("volume").flatMap { v in
+                            guard let m = v.double("measured_i"), let t = v.double("target_i") else { return nil }
+                            return t - m
+                        })
     }
 
     private static func track(_ v: JSON) -> DashTrack? {

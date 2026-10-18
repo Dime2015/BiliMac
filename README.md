@@ -55,6 +55,10 @@ AV1 needs a third of AVC's bandwidth, which helps a lot on overseas connections;
 - **"Outside the picture" player layout**: title and tech info live in the black bar above the video, controls below it — nothing covers the picture or subtitles, so nothing has to auto-hide.
 - **Stats for nerds** (press I): codec, bitrate, current node, live download speed, route throughput, buffer, stalls / dropped frames, startup time, and a 60-second throughput graph.
 - **Heat curve on the progress bar**: bilibili retired its heat ("高能进度条") endpoint, so BiliMac draws the busiest moments from danmaku density, shown when you hover the progress bar.
+- **Picture and sound enhancements** (all optional; switch them in the bottom bar's enhancement pill — pink means working):
+  - **Super resolution**: when the picture is shown larger than the video, it's upscaled on your Mac — 720p and below through macOS's AI super resolution (VideoToolbox) first, then MetalFX to the screen's pixels. Good for old low-res uploads, or for picking a lower quality abroad to save bandwidth and getting the sharpness back. About 6–7 ms a frame on an M3 Pro.
+  - **Loudness normalization**: uses bilibili's own loudness measurement to play every video at a similar volume.
+  - **Voice boost**: brings dialogue forward. Both audio effects together cost about 1.5% CPU, with audio and picture kept within a few milliseconds.
 - **Chinese / English / Japanese** UI; dark, a light theme built on bilibili pink, or follow the system.
 
 ## Screenshots

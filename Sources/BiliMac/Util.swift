@@ -269,3 +269,15 @@ extension View {
         onHover { inside in inside ? NSCursor.pointingHand.push() : NSCursor.pop() }
     }
 }
+
+struct TimeoutError: Error, LocalizedError { var errorDescription: String? { "timed out" } }
+
+/// Runs `work`, giving up after `seconds`.
+func withTimeout<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { g in
+        g.addTask { try await work() }
+        g.addTask { try await Task.sleep(for: .seconds(seconds)); throw TimeoutError() }
+        defer { g.cancelAll() }
+        return try await g.next()!
+    }
+}

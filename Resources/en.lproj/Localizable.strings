@@ -179,6 +179,10 @@
 " · 峰值 %@" = " · peak %@";
 "视频码率" = "Video bitrate";
 "音频" = "Audio";
+"响度均衡" = "Loudness normalization";
+"人声增强" = "Voice boost";
+"音效" = "Audio effects";
+"超分" = "Super res";
 "线路" = "Route";
 "下载速度" = "Download";
 "实时 %@" = "now %@";
@@ -191,6 +195,10 @@
 "起播耗时" = "Startup time";
 "%.2f 秒" = "%.2f s";
 "%.0f 秒" = "%.0f s";
+"画质增强" = "Picture enhancement";
+"画面没有放大，或是 HDR 视频，暂不处理" = "standing by — the picture isn't enlarged, or the video is HDR";
+"自动" = "auto";
+"未生效" = "inactive";
 "暂停 空格" = "Pause  Space";
 "播放 空格" = "Play  Space";
 "弹幕 D" = "Danmaku  D";
@@ -208,6 +216,10 @@
 "倍速" = "Speed";
 "播放速度" = "Playback speed";
 "正常" = "Normal";
+"增强" = "Enhance";
+"画质与音效增强" = "Picture & sound enhancements";
+"画质增强（超分辨率）" = "Picture enhancement (super resolution)";
+"工作中" = "working";
 "统计信息" = "Stats for nerds";
 "按 I 关闭" = "Press I to close";
 "近 60 秒 · 峰值 %@" = "Last 60 s · peak %@";
@@ -289,6 +301,10 @@
 "硬件解码：HEVC %@ · AV1 %@" = "Hardware decoding: HEVC %1$@ · AV1 %2$@";
 "支持" = "yes";
 "不支持" = "no";
+"画面显示得比视频本身大时，在本机放大补细节：720P 及以下先用 AI 超分，再用 MetalFX 放大到屏幕像素；HDR 视频不处理" = "When the picture is shown larger than the video itself, upscale it on this Mac: 720p and below goes through AI super resolution first, then MetalFX scales to the screen's pixels. HDR videos are left as they are";
+"按 B 站测得的响度把每个视频调到相近的音量，切换视频不用再调音量" = "Uses bilibili's loudness measurements to play every video at a similar volume, so you don't reach for the volume between videos";
+"突出对白、压低背景声，适合口播、访谈和 Vlog" = "Brings dialogue forward and pushes background sound back; good for talks, interviews and vlogs";
+"开启音效后，音频会先整段下载，再与画面同步播放；起播可能慢 1–2 秒" = "With audio effects on, the audio is downloaded in full and kept in sync with the picture; playback may take 1–2 s longer to start";
 "从上次观看的位置继续播放" = "Resume where you left off";
 "同步观看历史到哔哩哔哩账号" = "Sync watch history to your bilibili account";
 "和官方客户端共用历史记录与续播进度" = "Shares history and resume points with the official apps";
