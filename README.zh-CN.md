@@ -6,11 +6,56 @@
 
 <p align="center"><a href="README.md">English</a> · <b>简体中文</b> · <a href="README.ja.md">日本語</a></p>
 
+<p align="center"><a href="https://github.com/Dime2015/BiliMac/releases/latest"><b>⬇ 下载最新版</b></a>（macOS 14+，Apple 芯片 / Intel）</p>
+
 ![精选](docs/screenshots/zh-Hans-featured.jpg)
 
 BiliMac 用 SwiftUI 从零写成，不是网页套壳。播放走系统的 AVPlayer（硬件解码，支持 4K / HDR / AV1），界面参考了 Spotify 的深色风格：信息给得多，但不打扰画面。
 
 > **非官方客户端。** 本项目与哔哩哔哩（上海宽娱数码科技有限公司）没有任何关系，使用的是公开但未文档化的网页接口，接口随时可能变化。仅供个人学习与使用。
+
+## 为什么用 BiliMac
+
+### 1. 海外看大会员 4K，尽量不卡
+
+![线路与画质策略](docs/screenshots/zh-Hans-hl-route.jpg)
+
+在海外打开 B 站，视频会被分配到海外 CDN 节点（`cosov` / `aliov` / Akamai 等），没缓存过的片段经常只有 **0.3～1 Mbps**，而 4K 需要几到十几 Mbps，结果就是看几秒卡一下。
+
+- **选线路**：把视频请求改写到国内节点 `08c` / `hwb` / `hw`（日本家宽实测 08c 稳定在 ~50 Mbps，海外默认节点未缓存片段只有不到 1 Mbps，数据见 [B站加速](https://github.com/Dime2015/bilibili-macos-overseas-accelerator)）。设置里有一键测速，直接比较各节点在你网络下的速度。
+- **画质策略**：「极致」按 4K → 1080P 高码率 → 1080P 60 帧 → … 的顺序取第一个能播的画质；卡顿时自动降一档并告诉你，手动选的画质不会被改动。
+- **看得见网速**：画面上方的信息条实时显示当前节点和下载速度，卡不卡、卡在哪一目了然。
+
+### 2. 系统原生级的弹幕防遮挡
+
+![弹幕从人身后穿过](docs/screenshots/zh-Hans-hl-people.jpg)
+
+B 站网页版的「智能防挡弹幕」依赖服务器给部分热门视频预先生成的蒙版，很多视频没有。BiliMac 直接用 macOS 自带的 Vision 人物识别，在你的 Mac 上实时找出画面里的人，让弹幕从人身后穿过——**任何视频都能用**，不上传任何画面。每秒识别约 15 帧，4K 播放时大约多用 0.1 个 CPU 核心，可在弹幕面板里随时开关。
+
+### 3. 选最省资源的解码方式
+
+![解码与画质设置](docs/screenshots/zh-Hans-hl-codec.jpg)
+
+BiliMac 不是网页套壳：播放直接走系统的 AVPlayer 和 VideoToolbox 硬件解码。同一个视频 B 站通常同时提供 AV1、HEVC、AVC 三种编码，BiliMac 让你选，默认「自动」优先选**你这台 Mac 能硬解**的格式；设置里会直接告诉你本机是否支持 HEVC / AV1 硬解。
+
+同一个 4K 视频在 M3 Pro 上实测：
+
+| 编码 | 码率 | CPU 占用 |
+|---|---|---|
+| AV1 | 3.40 Mbps | 6.6% |
+| HEVC | 4.69 Mbps | 6.5% |
+| AVC | 9.98 Mbps | 12.8% |
+
+AV1 只要 AVC 三分之一的带宽，海外网络下格外有用；但 M1 / M2 和 Intel Mac 不能硬解 AV1，这些机器上选 HEVC 才省电省 CPU。「自动」会替你判断。
+
+### 4. 官方客户端没有的
+
+![统计信息](docs/screenshots/zh-Hans-hl-stats.jpg)
+
+- **「画面外」播放器布局**：标题、技术信息在画面上方的黑条里，控制栏在画面下方，什么都不压在画面和字幕上，也就不用自动隐藏。
+- **统计信息面板**（按 I）：编码、码率、当前节点、实时下载速度、线路吞吐、缓冲、卡顿 / 丢帧、起播耗时，以及 60 秒速度曲线。
+- **进度条热度曲线**：B 站的高能进度条接口已经下线，BiliMac 按弹幕密度在本地画出视频里最热闹的片段，鼠标移到进度条上就能看到。
+- **简体中文 / English / 日本語**界面，深色、以 B 站粉为主的浅色，或跟随系统。
 
 ## 截图
 
