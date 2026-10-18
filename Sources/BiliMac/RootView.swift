@@ -213,6 +213,7 @@ struct TopBar: View {
             SearchBox(search: app.search).padding(.leading, 6)
             Spacer()
             AppearanceSwitch()
+            CircleIconButton(icon: "gearshape", label: L("设置"), size: 36) { app.go(.settings) }
             AccountButton()
         }
         .padding(.horizontal, 24)
@@ -236,11 +237,7 @@ struct AccountButton: View {
             .help(app.account.name ?? L("账号"))
             .floatingPanel(id: "account", isPresented: $open, placement: .below(.trailing)) { menu }
         } else {
-            HStack(spacing: 10) {
-                Button(L("设置")) { app.go(.settings) }.buttonStyle(.pressable).foregroundStyle(Theme.text2)
-                    .font(.system(size: 13.5, weight: .semibold))
-                PillButton(title: L("登录"), filled: true, tint: Theme.primary) { app.showLogin = true }
-            }
+            PillButton(title: L("登录"), filled: true, tint: Theme.primary) { app.showLogin = true }
         }
     }
 
