@@ -288,7 +288,8 @@ private struct DanmakuSection: View {
             Row(title: L("显示区域")) {
                 SlidingChips(options: [(0.25, "1/4"), (0.5, L("半屏")), (0.75, "3/4"), (1.0, L("全屏"))], selection: $s.danmakuArea)
             }
-            ToggleRow(title: L("顶部 / 底部固定弹幕"), isOn: $s.danmakuTopBottom)
+            DanmakuFilterEditor()
+                .padding(.vertical, 14)
         }
     }
 }

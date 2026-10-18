@@ -572,6 +572,19 @@ actor BiliAPI {
                          width: d.int("img_x_size") ?? 160, height: d.int("img_y_size") ?? 90, index: index)
     }
 
+    /// Your 弹幕屏蔽 rules saved on bilibili (needs login), as BiliMac rules: keyword, "/regex/", "u:<hash>".
+    func danmakuCloudRules() async throws -> [String] {
+        let d = try await get("https://api.bilibili.com/x/dm/filter/user", [:])
+        return d.arr("rule").compactMap { r in
+            guard let f = r.str("filter"), !f.isEmpty else { return nil }
+            switch r.int("type") {
+            case 1: return "/\(f)/"
+            case 2: return "u:\(f)"
+            default: return f
+            }
+        }
+    }
+
     func danmaku(cid: Int) async throws -> Data {
         let (data, _) = try await session.data(for: request(URL(string: "https://api.bilibili.com/x/v1/dm/list.so?oid=\(cid)")!))
         return data

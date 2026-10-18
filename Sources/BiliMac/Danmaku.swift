@@ -8,6 +8,10 @@ struct Danmaku {
     let size: Double
     let color: UInt32
     let text: String
+    /// Sender's hashed mid (for blocking a user).
+    var sender = ""
+    /// bilibili's 0–10 quality weight (屏蔽等级 hides those below the level); 10 when the list doesn't say.
+    var weight = 10
 
     static func load(cid: Int) async throws -> [Danmaku] {
         var data = try await BiliAPI.shared.danmaku(cid: cid)
@@ -75,9 +79,63 @@ private final class DanmakuParser: NSObject, XMLParserDelegate {
         attrs = nil
         let mode = Int(a[1]) ?? 1
         guard [1, 2, 3, 4, 5].contains(mode), !text.isEmpty else { return }
+        // p = time, mode, size, colour, ctime, pool, sender hash, dmid, weight
         items.append(Danmaku(time: Double(a[0]) ?? 0, mode: mode, size: Double(a[2]) ?? 25,
-                             color: UInt32(a[3]) ?? 0xFFFFFF, text: text))
+                             color: UInt32(a[3]) ?? 0xFFFFFF, text: text,
+                             sender: a.count > 6 ? a[6] : "", weight: a.count > 8 ? Int(a[8]) ?? 10 : 10))
     }
+}
+
+/// 屏蔽设定: which danmaku to leave out.
+struct DanmakuFilter: Equatable {
+    var scroll = false, top = false, bottom = false, color = false
+    var level = 0
+    var rules: [String] = []
+
+    init(_ s: AppSettings) {
+        scroll = s.danmakuBlockScroll; top = s.danmakuBlockTop; bottom = s.danmakuBlockBottom; color = s.danmakuBlockColor
+        level = s.danmakuLevel; rules = s.danmakuBlocklist
+    }
+
+    /// Rules split by kind, regexes compiled once per change.
+    struct Compiled {
+        let filter: DanmakuFilter
+        let words: [String]
+        let regexes: [NSRegularExpression]
+        let senders: Set<String>
+
+        init(_ f: DanmakuFilter) {
+            filter = f
+            var w: [String] = [], r: [NSRegularExpression] = [], u = Set<String>()
+            for rule in f.rules {
+                if let hash = DanmakuFilter.sender(rule) { u.insert(hash) }
+                else if let pattern = DanmakuFilter.regex(rule) {
+                    if let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) { r.append(re) }
+                } else if !rule.isEmpty { w.append(rule) }
+            }
+            words = w; regexes = r; senders = u
+        }
+
+        func allows(_ d: Danmaku) -> Bool {
+            switch d.mode {
+            case 4: if filter.bottom { return false }
+            case 5: if filter.top { return false }
+            default: if filter.scroll { return false }
+            }
+            if filter.color, d.color & 0xFFFFFF != 0xFFFFFF { return false }
+            if filter.level > 0, d.weight < filter.level { return false }
+            if !senders.isEmpty, senders.contains(d.sender) { return false }
+            for w in words where d.text.range(of: w, options: .caseInsensitive) != nil { return false }
+            let range = NSRange(d.text.startIndex..., in: d.text)
+            for re in regexes where re.firstMatch(in: d.text, range: range) != nil { return false }
+            return true
+        }
+    }
+
+    static func regex(_ rule: String) -> String? {
+        rule.count > 2 && rule.hasPrefix("/") && rule.hasSuffix("/") ? String(rule.dropFirst().dropLast()) : nil
+    }
+    static func sender(_ rule: String) -> String? { rule.hasPrefix("u:") ? String(rule.dropFirst(2)) : nil }
 }
 
 /// Lays danmaku out into lanes (time-based, so seeking just works) and draws them on a Canvas.
@@ -91,7 +149,7 @@ final class DanmakuEngine {
     }
 
     private struct Key: Equatable {
-        let count: Int, first: Double, width: CGFloat, height: CGFloat, scale: Double, speed: Double, area: Double, tb: Bool
+        let count: Int, first: Double, width: CGFloat, height: CGFloat, scale: Double, speed: Double, area: Double, filter: DanmakuFilter
     }
 
     private var key: Key?
@@ -109,10 +167,11 @@ final class DanmakuEngine {
 
     private func layout(_ list: [Danmaku], size: CGSize, s: AppSettings) {
         let k = Key(count: list.count, first: list.first?.time ?? 0, width: size.width, height: size.height,
-                    scale: s.danmakuScale, speed: s.danmakuSpeed, area: s.danmakuArea, tb: s.danmakuTopBottom)
+                    scale: s.danmakuScale, speed: s.danmakuSpeed, area: s.danmakuArea, filter: DanmakuFilter(s))
         guard k != key else { return }
         if imageScale != s.danmakuScale { images.removeAll(); imageScale = s.danmakuScale }
         key = k
+        let filter = DanmakuFilter.Compiled(k.filter)
         duration = 8 / max(s.danmakuSpeed, 0.25)
         laneHeight = ceil(22 * s.danmakuScale * 1.4)
         let lanes = max(1, Int(size.height * s.danmakuArea / laneHeight))
@@ -124,9 +183,9 @@ final class DanmakuEngine {
         var out: [Placed] = []
         out.reserveCapacity(list.count)
         for (i, d) in list.enumerated() {
+            guard filter.allows(d) else { continue }
             let w = (d.text as NSString).size(withAttributes: [.font: font(d, s.danmakuScale)]).width + 4
             if d.mode == 4 || d.mode == 5 {
-                guard s.danmakuTopBottom else { continue }
                 if d.mode == 5, let l = topLast.firstIndex(where: { d.time >= $0 + fixedDuration }) {
                     topLast[l] = d.time
                     out.append(Placed(index: i, start: d.time, lane: l, width: w, kind: 1))

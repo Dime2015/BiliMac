@@ -603,6 +603,7 @@ struct NowPlayingBar: View {
                         .foregroundStyle(settings.danmakuOn ? Theme.text : Theme.text2)
                 }
                 .help(L("弹幕"))
+                DanmakuSettingsButton(inPlayer: false)
             }
             .buttonStyle(.pressable)
             BarProgress(clock: player.clock) { player.seek(to: $0) }

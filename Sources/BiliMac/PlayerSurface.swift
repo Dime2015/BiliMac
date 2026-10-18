@@ -418,6 +418,7 @@ struct ControlsBar: View {
                 ChromeIcon(icon: settings.danmakuOn ? "text.bubble.fill" : "text.bubble", help: L("弹幕 D"), active: settings.danmakuOn) {
                     settings.danmakuOn.toggle()
                 }
+                DanmakuSettingsButton()
                 ChromeIcon(icon: "chart.xyaxis.line", help: L("统计信息 I"), active: settings.showStats) { settings.showStats.toggle() }
                 VolumeBar(player: controller).padding(.horizontal, 4)
                 if let onMiniPlayer, mode == .normal {

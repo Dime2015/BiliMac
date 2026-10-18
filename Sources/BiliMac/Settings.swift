@@ -140,7 +140,15 @@ final class AppSettings: ObservableObject {
     @Published var danmakuScale: Double { didSet { d.set(danmakuScale, forKey: "danmakuScale") } }
     @Published var danmakuSpeed: Double { didSet { d.set(danmakuSpeed, forKey: "danmakuSpeed") } }
     @Published var danmakuArea: Double { didSet { d.set(danmakuArea, forKey: "danmakuArea") } }
-    @Published var danmakuTopBottom: Bool { didSet { d.set(danmakuTopBottom, forKey: "danmakuTopBottom") } }
+    // 弹幕屏蔽 (like the official player's 屏蔽设定)
+    @Published var danmakuBlockScroll: Bool { didSet { d.set(danmakuBlockScroll, forKey: "danmakuBlockScroll") } }
+    @Published var danmakuBlockTop: Bool { didSet { d.set(danmakuBlockTop, forKey: "danmakuBlockTop") } }
+    @Published var danmakuBlockBottom: Bool { didSet { d.set(danmakuBlockBottom, forKey: "danmakuBlockBottom") } }
+    @Published var danmakuBlockColor: Bool { didSet { d.set(danmakuBlockColor, forKey: "danmakuBlockColor") } }
+    /// 屏蔽等级 0–10: hide danmaku whose weight is below this (0 = off).
+    @Published var danmakuLevel: Int { didSet { d.set(danmakuLevel, forKey: "danmakuLevel") } }
+    /// Rules: plain keyword, "/regex/", or "u:<sender hash>".
+    @Published var danmakuBlocklist: [String] { didSet { d.set(danmakuBlocklist, forKey: "danmakuBlocklist") } }
     // 显示
     @Published var showStats: Bool { didSet { d.set(showStats, forKey: "showStats") } }
     @Published var showFeaturedInfo: Bool { didSet { d.set(showFeaturedInfo, forKey: "showFeaturedInfo") } }
@@ -184,7 +192,14 @@ final class AppSettings: ObservableObject {
         danmakuScale = n("danmakuScale", 1)
         danmakuSpeed = n("danmakuSpeed", 1)
         danmakuArea = n("danmakuArea", 0.5)
-        danmakuTopBottom = b("danmakuTopBottom", true)
+        // Older builds had one switch for top + bottom.
+        let fixedOn = b("danmakuTopBottom", true)
+        danmakuBlockScroll = b("danmakuBlockScroll", false)
+        danmakuBlockTop = b("danmakuBlockTop", !fixedOn)
+        danmakuBlockBottom = b("danmakuBlockBottom", !fixedOn)
+        danmakuBlockColor = b("danmakuBlockColor", false)
+        danmakuLevel = d.object(forKey: "danmakuLevel") == nil ? 0 : d.integer(forKey: "danmakuLevel")
+        danmakuBlocklist = d.stringArray(forKey: "danmakuBlocklist") ?? []
         showStats = b("showStats", false)
         showFeaturedInfo = b("showFeaturedInfo", true)
         chromeLayout = ChromeLayout(rawValue: d.string(forKey: "chromeLayout") ?? "") ?? .outside
