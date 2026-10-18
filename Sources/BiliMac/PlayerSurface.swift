@@ -483,27 +483,11 @@ struct ControlsBar: View {
                     .padding(.leading, 4)
                 if let accessory { accessory.padding(.leading, 12) }
                 Spacer()
-                EnhancementButton(controller: controller).padding(.trailing, 2)
-                AudioBadge(controller: controller)
-                QualityPicker(controller: controller)
-                SpeedPicker(controller: controller).padding(.trailing, 4)
-                ChromeIcon(icon: settings.danmakuOn ? "text.bubble.fill" : "text.bubble", help: L("弹幕 D"), active: settings.danmakuOn) {
-                    settings.danmakuOn.toggle()
-                }
-                DanmakuSettingsButton()
-                DanmakuSendButton(controller: controller)
-                ChromeIcon(icon: "chart.xyaxis.line", help: L("统计信息 I"), active: settings.showStats) { settings.showStats.toggle() }
-                VolumeBar(player: controller).padding(.horizontal, 4)
-                if let onMiniPlayer, mode == .normal {
-                    ChromeIcon(icon: "pip.enter", help: L("小窗：返回浏览，在底部继续播放"), action: onMiniPlayer)
-                }
-                if let onAppFull {
-                    ChromeIcon(icon: mode == .appFull ? "rectangle.arrowtriangle.2.inward" : "rectangle.arrowtriangle.2.outward",
-                               help: mode == .appFull ? L("退出应用内全屏 T") : L("应用内全屏 T"), active: mode == .appFull, action: onAppFull)
-                }
-                if let onScreenFull {
-                    ChromeIcon(icon: mode == .screenFull ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                               help: mode == .screenFull ? L("退出全屏 F") : L("屏幕全屏 F"), active: mode == .screenFull, action: onScreenFull)
+                // Narrow windows: the volume slider shrinks, then it and 统计信息 go, before anything is cut off.
+                ViewThatFits(in: .horizontal) {
+                    rightControls(level: 0)
+                    rightControls(level: 1)
+                    rightControls(level: 2)
                 }
             }
         }
@@ -514,6 +498,36 @@ struct ControlsBar: View {
         // No background here even when solid: an opaque bar would turn the heat curve, which pokes
         // up over the picture, black. The outside layout paints black behind the whole player.
         .contentShape(Rectangle())
+    }
+
+    private func rightControls(level: Int) -> some View {
+        HStack(spacing: 6) {
+            EnhancementButton(controller: controller).padding(.trailing, 2)
+            AudioBadge(controller: controller)
+            QualityPicker(controller: controller)
+            SpeedPicker(controller: controller).padding(.trailing, 4)
+            ChromeIcon(icon: settings.danmakuOn ? "text.bubble.fill" : "text.bubble", help: L("弹幕 D"), active: settings.danmakuOn) {
+                settings.danmakuOn.toggle()
+            }
+            DanmakuSettingsButton()
+            DanmakuSendButton(controller: controller)
+            if level < 2 {
+                ChromeIcon(icon: "chart.xyaxis.line", help: L("统计信息 I"), active: settings.showStats) { settings.showStats.toggle() }
+            }
+            VolumeBar(player: controller, sliderWidth: [90, 50, 0][level]).padding(.horizontal, 4)
+            if let onMiniPlayer, mode == .normal {
+                ChromeIcon(icon: "pip.enter", help: L("小窗：返回浏览，在底部继续播放"), action: onMiniPlayer)
+            }
+            if let onAppFull {
+                ChromeIcon(icon: mode == .appFull ? "rectangle.arrowtriangle.2.inward" : "rectangle.arrowtriangle.2.outward",
+                           help: mode == .appFull ? L("退出应用内全屏 T") : L("应用内全屏 T"), active: mode == .appFull, action: onAppFull)
+            }
+            if let onScreenFull {
+                ChromeIcon(icon: mode == .screenFull ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                           help: mode == .screenFull ? L("退出全屏 F") : L("屏幕全屏 F"), active: mode == .screenFull, action: onScreenFull)
+            }
+        }
+        .fixedSize()
     }
 }
 

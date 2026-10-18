@@ -226,8 +226,17 @@ struct FeaturedView: View {
 
 
     /// 精选's own controls, living in the bottom bar instead of floating over the picture.
+    /// Counts, then the position and 稍后看, give way when the bar is narrow (counts never wrap).
     private var barActions: some View {
-        let s = actions.detail?.stat
+        ViewThatFits(in: .horizontal) {
+            barActionRow(counts: true, extras: true)
+            barActionRow(counts: false, extras: true)
+            barActionRow(counts: false, extras: false)
+        }
+    }
+
+    private func barActionRow(counts: Bool, extras: Bool) -> some View {
+        let s = counts ? actions.detail?.stat : nil
         return HStack(spacing: 2) {
             BarAction(icon: "chevron.up", help: L("上一个 ↑")) { feed.previous() }.disabled(feed.index == 0)
             BarAction(icon: "chevron.down", help: L("下一个 ↓")) { feed.next() }
@@ -243,10 +252,13 @@ struct FeaturedView: View {
                 if app.account.loggedIn { withAnimation(Motion.pop) { showFav.toggle() } } else { app.showLogin = true }
             }
             .floatingPanel(id: "fav-bar", isPresented: $showFav, placement: .above(.center)) { FavPopover(actions: actions) { showFav = false } }
-            BarAction(icon: "text.badge.plus", help: L("稍后看")) { actions.watchLater() }
-            Text("\(feed.index + 1) / \(feed.items.count)").font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.45)).padding(.leading, 8)
+            if extras {
+                BarAction(icon: "text.badge.plus", help: L("稍后看")) { actions.watchLater() }
+                Text("\(feed.index + 1) / \(feed.items.count)").font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.45)).padding(.leading, 8).lineLimit(1).fixedSize()
+            }
         }
+        .fixedSize()
     }
 
     @ViewBuilder private func upNext(expanded: Bool, top: CGFloat = 92, bottom: CGFloat = 16) -> some View {
@@ -361,7 +373,7 @@ private struct BarAction: View {
             HStack(spacing: 5) {
                 Image(systemName: icon).font(.system(size: 14, weight: .semibold))
                     .contentTransition(.symbolEffect(.replace))
-                if let count { Text(count).font(.system(size: 11.5, weight: .medium)).monospacedDigit() }
+                if let count { Text(count).font(.system(size: 11.5, weight: .medium)).monospacedDigit().lineLimit(1).fixedSize() }
             }
             .foregroundStyle(active ? Theme.pink : .white)
             .padding(.horizontal, 8).frame(height: 30)

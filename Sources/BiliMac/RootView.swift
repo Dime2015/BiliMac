@@ -682,6 +682,8 @@ struct BarProgress: View {
 
 struct VolumeBar: View {
     @ObservedObject var player: PlayerController
+    /// 0 hides the slider (the icon still mutes; ↑/↓ and the scroll wheel still change the volume).
+    var sliderWidth: CGFloat = 90
     var body: some View {
         HStack(spacing: 8) {
             Button { player.toggleMute() } label: {
@@ -689,9 +691,11 @@ struct VolumeBar: View {
                     .font(.system(size: 14)).foregroundStyle(Theme.text2).frame(width: 20)
             }
             .buttonStyle(.pressable)
-            ThinSlider(value: Binding(get: { player.player.isMuted ? 0 : Double(player.player.volume) },
-                                      set: { player.setVolume(Float($0)) }))
-                .frame(width: 90)
+            if sliderWidth > 0 {
+                ThinSlider(value: Binding(get: { player.player.isMuted ? 0 : Double(player.player.volume) },
+                                          set: { player.setVolume(Float($0)) }))
+                    .frame(width: sliderWidth)
+            }
         }
     }
 }
