@@ -198,7 +198,8 @@ final class PlayerController: ObservableObject {
 
     // MARK: Loading
 
-    func load(bvid: String, cid: Int, aid: Int?, autoplay: Bool = true, resume: Bool = true) {
+    /// startAt: open at this position (seconds) instead of the start / the account's resume point.
+    func load(bvid: String, cid: Int, aid: Int?, autoplay: Bool = true, resume: Bool = true, startAt: Double? = nil) {
         teardownItem()
         self.bvid = bvid
         self.cid = cid
@@ -232,8 +233,8 @@ final class PlayerController: ObservableObject {
                 guard !Task.isCancelled else { return }
                 self.info = info
                 let v = info.pickVideo(order: self.settings.qualityOrder, codec: self.settings.codec)
-                var start: Double = 0
-                if resume, self.settings.resumePlayback, !Env.demo, let t = info.lastPlayTime,
+                var start: Double = startAt ?? 0
+                if startAt == nil, resume, self.settings.resumePlayback, !Env.demo, let t = info.lastPlayTime,
                    info.lastPlayCid == nil || info.lastPlayCid == cid, t > 5, info.duration == 0 || t < info.duration - 10 {
                     start = t
                 }

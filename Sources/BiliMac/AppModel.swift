@@ -585,6 +585,8 @@ final class FeaturedModel: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var current: PlayerController?
     private var players: [String: PlayerController] = [:]
+    /// Where you left each video in this feed, so switching back carries on from there.
+    private var positions: [String: Double] = [:]
     private var page = 0
     private var fetching = false
 
@@ -607,6 +609,7 @@ final class FeaturedModel: ObservableObject {
     func reset() async {
         for p in players.values { p.stop() }
         players.removeAll()
+        positions.removeAll()
         current = nil
         items = []
         index = 0
@@ -651,6 +654,7 @@ final class FeaturedModel: ObservableObject {
             return
         }
         direction = d > 0 ? 1 : -1
+        rememberPosition()
         index = target
         activate()
         if index >= items.count - 3 { Task { await fetchMore(); preloadNeighbours() } }
@@ -661,15 +665,31 @@ final class FeaturedModel: ObservableObject {
         let it = items[i]
         if let p = players[it.bvid] { return p }
         let p = PlayerController()
-        p.load(bvid: it.bvid, cid: cid, aid: it.aid, autoplay: autoplay, resume: false)
+        p.load(bvid: it.bvid, cid: cid, aid: it.aid, autoplay: autoplay, resume: false, startAt: positions[it.bvid])
         players[it.bvid] = p
         return p
     }
 
+    /// Notes where the current video was left (skips the first seconds and the very end).
+    private func rememberPosition() {
+        guard let c = current, let item = currentItem else { return }
+        let t = c.clock.time, d = c.clock.duration
+        if t > 3, d == 0 || t < d - 5 { positions[item.bvid] = t } else { positions[item.bvid] = nil }
+        if positions.count > 200 { positions.removeAll() }
+    }
+
     private func activate() {
+        let saved = currentItem.flatMap { positions[$0.bvid] }
         guard let c = controller(for: index, autoplay: true), let item = currentItem else { return }
         for p in players.values where p !== c { p.pause() }
-        if c.phase == .ready { c.seek(to: 0) }
+        if c.phase == .ready {
+            if let saved {
+                if abs(c.clock.time - saved) > 1 { c.seek(to: saved) }
+            } else if c.clock.duration > 0, c.clock.time > c.clock.duration - 5 {
+                c.seek(to: 0)   // watched to the end before: start over
+            }
+        }
+        if let saved { c.flash("arrow.uturn.backward", Lf("从 %@ 继续", formatTime(saved))) }
         c.play()
         current = c
         AppModel.shared.setNowPlaying(c, card: item, context: .featured)

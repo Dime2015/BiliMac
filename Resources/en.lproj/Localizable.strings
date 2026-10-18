@@ -34,6 +34,7 @@
 "已收藏" = "Added to favorites";
 "已取消收藏" = "Removed from favorites";
 "收藏失败：%@" = "Couldn’t update favorites: %@";
+"从 %@ 继续" = "Resuming at %@";
 "外观：%@" = "Appearance: %@";
 "8K 超高清" = "8K Ultra HD";
 "杜比视界" = "Dolby Vision";
