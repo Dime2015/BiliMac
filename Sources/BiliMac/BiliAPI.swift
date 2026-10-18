@@ -622,7 +622,7 @@ actor BiliAPI {
                         duration: Double(dash.int("duration") ?? 0),
                         loudnessGainDB: d.obj("volume").flatMap { v in
                             guard let m = v.double("measured_i"), let t = v.double("target_i") else { return nil }
-                            return t - m
+                            return min(max(t - m, -15), 12)   // same clamp AudioFX applies
                         })
     }
 

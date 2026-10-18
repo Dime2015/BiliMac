@@ -351,6 +351,7 @@ final class MLUpscaler {
 /// The picture: the system AVPlayerLayer, with the super-resolution layer on top when it applies.
 struct PlayerPicture: View {
     @ObservedObject var controller: PlayerController
+    var mode: PlayerMode = .normal
     @ObservedObject private var settings = AppSettings.shared
     @State private var srDrawing = false
 
@@ -362,12 +363,20 @@ struct PlayerPicture: View {
             // Only when the picture is drawn noticeably larger than the source, and not HDR.
             let wanted = settings.superResolution && source.height > 0 && fitHeight > source.height * 1.15 && !controller.isHDR
             ZStack {
-                VideoLayer(player: controller.player).opacity(wanted && srDrawing ? 0 : 1)
+                VideoLayer(player: controller.player, dynamicRange: effectiveRange).opacity(wanted && srDrawing ? 0 : 1)
                 if wanted {
                     SuperResRepresentable(controller: controller, drawing: $srDrawing)
                 }
             }
             .onChange(of: wanted) { _, on in if !on { srDrawing = false; controller.superResStatus = nil } }
+        }
+    }
+
+    /// 自动: soft next to the interface, full when the video fills the window or screen.
+    private var effectiveRange: HDRBrightness {
+        switch settings.hdrBrightness {
+        case .auto: return mode == .normal ? .soft : .full
+        default: return settings.hdrBrightness
         }
     }
 }

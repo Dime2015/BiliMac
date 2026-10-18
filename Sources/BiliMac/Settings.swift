@@ -74,6 +74,21 @@ enum AppAppearance: String, CaseIterable, Identifiable {
     }
 }
 
+/// How bright HDR / Dolby Vision video may get next to the rest of the screen.
+enum HDRBrightness: String, CaseIterable, Identifiable {
+    /// Soft in a window, full in 应用内全屏 / 屏幕全屏.
+    case auto, full, soft, sdr
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .auto: return L("自动")
+        case .full: return L("完整")
+        case .soft: return L("柔和")
+        case .sdr: return L("转成 SDR")
+        }
+    }
+}
+
 /// Danmaku-density heat curve above the progress bar (YouTube "most replayed" style).
 enum HeatMode: String, CaseIterable, Identifiable {
     case hover, always, off
@@ -126,6 +141,7 @@ final class AppSettings: ObservableObject {
     // 播放
     @Published var qualityPreset: QualityPreset { didSet { d.set(qualityPreset.rawValue, forKey: "qualityPreset") } }
     @Published var preferHDR: Bool { didSet { d.set(preferHDR, forKey: "preferHDR") } }
+    @Published var hdrBrightness: HDRBrightness { didSet { d.set(hdrBrightness.rawValue, forKey: "hdrBrightness") } }
     /// Step down one entry in the order when playback keeps stalling.
     @Published var autoDowngrade: Bool { didSet { d.set(autoDowngrade, forKey: "autoDowngrade") } }
     var qualityOrder: [Int] { qualityPreset.order(hdr: preferHDR) }
@@ -188,6 +204,7 @@ final class AppSettings: ObservableObject {
         cdnNode = CDNNode(rawValue: d.string(forKey: "cdnNode") ?? "") ?? .c08
         qualityPreset = QualityPreset(rawValue: d.string(forKey: "qualityPreset") ?? "") ?? .max
         preferHDR = b("preferHDR", false)
+        hdrBrightness = HDRBrightness(rawValue: d.string(forKey: "hdrBrightness") ?? "") ?? .auto
         autoDowngrade = b("autoDowngrade", true)
         codec = CodecPref(rawValue: d.string(forKey: "codec") ?? "") ?? .auto
         resumePlayback = b("resumePlayback", true)

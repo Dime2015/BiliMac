@@ -17,13 +17,27 @@ final class PlayerLayerNSView: NSView {
 
 struct VideoLayer: NSViewRepresentable {
     let player: AVPlayer
+    /// How far HDR may go above the interface's white (nil = system decides).
+    var dynamicRange: HDRBrightness? = nil
     func makeNSView(context: Context) -> PlayerLayerNSView {
         let v = PlayerLayerNSView()
         v.playerLayer.player = player
+        apply(v)
         return v
     }
     func updateNSView(_ v: PlayerLayerNSView, context: Context) {
         if v.playerLayer.player !== player { v.playerLayer.player = player }
+        apply(v)
+    }
+    private func apply(_ v: PlayerLayerNSView) {
+        guard #available(macOS 26.0, *), let r = dynamicRange else { return }
+        let want: CALayer.DynamicRange
+        switch r {
+        case .full, .auto: want = .high
+        case .soft: want = .constrainedHigh
+        case .sdr: want = .standard
+        }
+        if v.playerLayer.preferredDynamicRange != want { v.playerLayer.preferredDynamicRange = want }
     }
     static func dismantleNSView(_ v: PlayerLayerNSView, coordinator: ()) { v.playerLayer.player = nil }
 }
@@ -147,7 +161,7 @@ struct PlayerSurface<Overlay: View>: View {
                          showStrip: settings.infoOverlay != .off, ns: expandingHeader ? headerNS : nil)
             ZStack {
                 Color.black
-                PlayerPicture(controller: controller)
+                PlayerPicture(controller: controller, mode: mode)
                 DanmakuOverlay(controller: controller)
                 PhaseOverlay(controller: controller)
                 FlashView(controller: controller)
@@ -209,7 +223,7 @@ struct PlayerSurface<Overlay: View>: View {
         let stripShown = chrome == .full && (settings.infoOverlay == .always || (settings.infoOverlay == .auto && show))
         ZStack {
             Color.black
-            PlayerPicture(controller: controller)
+            PlayerPicture(controller: controller, mode: mode)
             DanmakuOverlay(controller: controller)
 
             // Scrims live under every piece of chrome, never above it.

@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Network
 
@@ -40,6 +41,8 @@ final class HLSStream {
         let dash: DashTrack
         let urls: [URL]       // CDN-rewritten primary first, then originals as fallback
         let segments: [Segment]
+        /// HDR signalling for the master playlist (video only).
+        var hdr: HDRSignal? = nil
     }
 
     let id: String
@@ -78,7 +81,12 @@ final class HLSStream {
         if audio != nil {
             s += "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"Audio\",DEFAULT=YES,AUTOSELECT=YES,CHANNELS=\"2\",URI=\"audio.m3u8\"\n"
         }
+        if let base = video.hdr?.codecs { codecs = base + (audio.map { "," + $0.dash.codecs } ?? "") }
         s += "#EXT-X-STREAM-INF:BANDWIDTH=\(peak),AVERAGE-BANDWIDTH=\(bw),CODECS=\"\(codecs)\",RESOLUTION=\(v.width)x\(v.height)\(fps)"
+        if let h = video.hdr {
+            if let sup = h.supplementalCodecs { s += ",SUPPLEMENTAL-CODECS=\"\(sup)\"" }
+            s += ",VIDEO-RANGE=\(h.videoRange)"
+        }
         s += audio != nil ? ",AUDIO=\"aud\"\n" : "\n"
         s += "video.m3u8\n"
         return s
@@ -184,7 +192,10 @@ final class HLSProxy: NSObject {
 
     /// Fetches SIDX for both tracks and builds the HLS description.
     func prepare(id: String, video: DashTrack, audio: DashTrack?, node: CDNNode) async throws -> HLSStream {
-        @Sendable func build(_ d: DashTrack) async throws -> HLSStream.Track {
+        @Sendable func build(_ d: DashTrack, video: Bool = false) async throws -> HLSStream.Track {
+            // Video: fetch the init segment with the index when they're adjacent, to read its HDR signalling.
+            let withInit = video && d.initRange.upperBound + 1 == d.indexRange.lowerBound
+            let lo = withInit ? d.initRange.lowerBound : d.indexRange.lowerBound
             let urls = d.urls.map(node.rewrite) + d.urls
             var lastError: Error = APIError(description: "no url")
             for u in urls.uniqued() {
@@ -192,14 +203,17 @@ final class HLSProxy: NSObject {
                     var r = URLRequest(url: u)
                     r.setValue(browserUA, forHTTPHeaderField: "User-Agent")
                     r.setValue(biliReferer, forHTTPHeaderField: "Referer")
-                    r.setValue("bytes=\(d.indexRange.lowerBound)-\(d.indexRange.upperBound)", forHTTPHeaderField: "Range")
+                    r.setValue("bytes=\(lo)-\(d.indexRange.upperBound)", forHTTPHeaderField: "Range")
                     r.timeoutInterval = 8
                     let (data, resp) = try await URLSession.shared.data(for: r)
                     let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                     guard code == 206 || code == 200 else { throw APIError(description: "sidx HTTP \(code) from \(u.host ?? "")") }
-                    let segs = try SIDX.parse(data.prefix(d.indexRange.count), anchor: d.indexRange.upperBound + 1)
+                    let skip = d.indexRange.lowerBound - lo
+                    let segs = try SIDX.parse(data.dropFirst(skip).prefix(d.indexRange.count), anchor: d.indexRange.upperBound + 1)
+                    let hdr = withInit ? await HDRSignal.read(init: data.prefix(skip), codecs: d.codecs) : nil
+                    if let hdr { log("hdr: \(hdr.videoRange) \(hdr.supplementalCodecs ?? "") \(hdr.codecs ?? "")") }
                     // Put the URL that worked first.
-                    return .init(dash: d, urls: [u] + urls.filter { $0 != u }.uniqued(), segments: segs)
+                    return .init(dash: d, urls: [u] + urls.filter { $0 != u }.uniqued(), segments: segs, hdr: hdr)
                 } catch {
                     lastError = error
                     log("sidx fetch failed (\(u.host ?? "")): \(error)")
@@ -207,7 +221,7 @@ final class HLSProxy: NSObject {
             }
             throw lastError
         }
-        async let v = build(video)
+        async let v = build(video, video: true)
         var at: HLSStream.Track?
         if let audio { at = try await build(audio) }
         return HLSStream(id: id, video: try await v, audio: at)
@@ -516,4 +530,48 @@ final class StreamStats {
 
     var lastSegment: Seg? { lock.lock(); defer { lock.unlock() }; return segs.last(where: { $0.video }) }
     var lastHost: String? { lock.lock(); defer { lock.unlock() }; return segs.last?.host }
+}
+
+/// How an HDR video track has to be declared in the HLS master playlist: VIDEO-RANGE, and for
+/// Dolby Vision the SUPPLEMENTAL-CODECS (profile 8) or a dvh1 CODECS (profile 5).
+struct HDRSignal {
+    let videoRange: String            // "PQ" or "HLG"
+    var supplementalCodecs: String? = nil
+    /// Replaces the video entry in CODECS (Dolby Vision profile 5 has no HDR10 / HLG base layer).
+    var codecs: String? = nil
+
+    /// Reads the init segment: the transfer function via AVFoundation, the Dolby Vision box by hand.
+    /// nil for SDR tracks.
+    static func read(init data: Data, codecs: String) async -> HDRSignal? {
+        var dv: (profile: Int, level: Int, compat: Int)?
+        for tag in ["dvvC", "dvcC", "dvwC"] {
+            if let r = data.range(of: Data(tag.utf8)), data.count >= r.upperBound + 5 {
+                let b = [UInt8](data[r.upperBound ..< r.upperBound + 5])
+                dv = (Int(b[2] >> 1) & 0x7F, (Int(b[2] & 1) << 5) | Int(b[3] >> 3), Int(b[4] >> 4))
+                break
+            }
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("bilimac-init-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: url) }
+        var transfer: String?
+        if (try? data.write(to: url)) != nil,
+           let track = try? await AVURLAsset(url: url).loadTracks(withMediaType: .video).first,
+           let fd = try? await track.load(.formatDescriptions).first {
+            let ext = CMFormatDescriptionGetExtensions(fd) as? [String: Any] ?? [:]
+            transfer = ext[kCVImageBufferTransferFunctionKey as String] as? String
+        }
+        let base = codecs.split(separator: ",").first.map(String.init) ?? codecs
+        var range: String?
+        if transfer == (kCVImageBufferTransferFunction_ITU_R_2100_HLG as String) { range = "HLG" }
+        else if transfer == (kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String) { range = "PQ" }
+        guard let dv else { return range.map { HDRSignal(videoRange: $0) } }
+        let tag = String(format: "dvh1.%02d.%02d", dv.profile, dv.level)
+        switch (dv.profile, dv.compat) {
+        case (5, _): return HDRSignal(videoRange: "PQ", codecs: tag)
+        case (8, 4): return HDRSignal(videoRange: range ?? "HLG", supplementalCodecs: tag + "/db4h", codecs: base == codecs ? nil : base)
+        case (8, 1): return HDRSignal(videoRange: range ?? "PQ", supplementalCodecs: tag + "/db1p")
+        case (8, 2): return range.map { HDRSignal(videoRange: $0, supplementalCodecs: tag + "/db2g") }
+        default: return range.map { HDRSignal(videoRange: $0) }
+        }
+    }
 }
