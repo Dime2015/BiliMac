@@ -101,6 +101,8 @@ struct PlayerSurface<Overlay: View>: View {
     var trailingInset: CGFloat = 0
     /// Title / channel shown at the top-left of the player (outside layout).
     var header: PlayerHeader? = nil
+    /// Controls at the far top-left (the video page's back button): in the top bar, or over the picture.
+    var topLeading: AnyView? = nil
     /// Room for the window's traffic lights at the top-left.
     var headerLeadingInset: CGFloat = 0
     /// Size the picture area to 16:9 (inline player) instead of filling the space given.
@@ -119,7 +121,7 @@ struct PlayerSurface<Overlay: View>: View {
 
     private var outsideBody: some View {
         VStack(spacing: 0) {
-            PlayerTopBar(controller: controller, header: header, leadingInset: headerLeadingInset,
+            PlayerTopBar(controller: controller, leading: topLeading, header: header, leadingInset: headerLeadingInset,
                          showStrip: settings.infoOverlay != .off)
             ZStack {
                 Color.black
@@ -185,6 +187,14 @@ struct PlayerSurface<Overlay: View>: View {
             overlay(show)
             PhaseOverlay(controller: controller)
             FlashView(controller: controller)
+            if chrome == .full, let topLeading {
+                topLeading
+                    .padding(.leading, 10 + headerLeadingInset)
+                    .padding(.top, topInset + 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .opacity(show ? 1 : 0)
+                    .allowsHitTesting(show)
+            }
             if chrome == .full, let header {
                 PlayerHeaderView(header: header)
                     .padding(.leading, 16 + headerLeadingInset)
@@ -248,10 +258,10 @@ extension PlayerSurface where Overlay == EmptyView {
     init(controller: PlayerController, chrome: Chrome = .full, mode: PlayerMode = .normal,
          onAppFull: (() -> Void)? = nil, onScreenFull: (() -> Void)? = nil, onMiniPlayer: (() -> Void)? = nil,
          onDoubleClick: (() -> Void)? = nil, topInset: CGFloat = 0, trailingInset: CGFloat = 0,
-         header: PlayerHeader? = nil, headerLeadingInset: CGFloat = 0, fitVideo: Bool = false) {
+         header: PlayerHeader? = nil, topLeading: AnyView? = nil, headerLeadingInset: CGFloat = 0, fitVideo: Bool = false) {
         self.init(controller: controller, chrome: chrome, mode: mode, onAppFull: onAppFull, onScreenFull: onScreenFull,
                   onMiniPlayer: onMiniPlayer, onDoubleClick: onDoubleClick, topInset: topInset, trailingInset: trailingInset,
-                  header: header, headerLeadingInset: headerLeadingInset, fitVideo: fitVideo) { _ in EmptyView() }
+                  header: header, topLeading: topLeading, headerLeadingInset: headerLeadingInset, fitVideo: fitVideo) { _ in EmptyView() }
     }
 }
 
@@ -285,16 +295,18 @@ struct PlayerHeaderView: View {
 /// The strip above the picture: who/what on the left, technical readout on the right.
 struct PlayerTopBar: View {
     @ObservedObject var controller: PlayerController
+    var leading: AnyView? = nil
     let header: PlayerHeader?
     let leadingInset: CGFloat
     let showStrip: Bool
     var body: some View {
         HStack(spacing: 16) {
+            if let leading { leading }
             if let header { PlayerHeaderView(header: header).layoutPriority(0) }
             Spacer(minLength: 12)
             if showStrip { InfoStrip(controller: controller, plain: true).layoutPriority(1) }
         }
-        .padding(.leading, 14 + leadingInset)
+        .padding(.leading, (leading == nil ? 14 : 6) + leadingInset)
         .padding(.trailing, 14)
         .frame(height: 38)
         .background(Color.black)
@@ -336,7 +348,7 @@ private struct PhaseOverlay: View {
 
 // MARK: - Controls
 
-private struct ChromeIcon: View {
+struct ChromeIcon: View {
     let icon: String
     let help: String
     var active = false
@@ -551,9 +563,10 @@ struct Scrubber: View {
             let heatBottom = midY - 5
             ZStack(alignment: .topLeading) {
                 if showHeat {
+                    // Opaque fills: translucent ones over the video layer get composited toward black.
                     ZStack {
-                        HeatShape(values: heat).fill(.white.opacity(active ? 0.34 : 0.2))
-                        HeatShape(values: heat).fill(Theme.pink.opacity(active ? 0.55 : 0.4))
+                        HeatShape(values: heat).fill(Color(white: active ? 0.52 : 0.3))
+                        HeatShape(values: heat).fill(active ? Theme.pink : Color(hex: 0x8E3F58))
                             .mask(alignment: .leading) { Rectangle().frame(width: w * played) }
                     }
                     .frame(width: w, height: heatHeight)

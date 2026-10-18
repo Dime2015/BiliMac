@@ -107,13 +107,6 @@ struct VideoScreen: View {
                 TintedPanel(tint: model.tint, height: 440) {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
-                            HStack(spacing: 12) {
-                                CircleIconButton(icon: "chevron.left", label: L("返回"), enabled: app.canBack) { app.goBack() }
-                                    .padding(.leading, settings.railAutoHide ? 56 : 0)
-                                if let p = model.detail?.partition, !p.isEmpty {
-                                    Text(p).font(.system(size: 13)).foregroundStyle(.white.opacity(0.7))
-                                }
-                            }
                             let outside = settings.chromeLayout == .outside
                             Group {
                                 if app.immersive {
@@ -122,14 +115,17 @@ struct VideoScreen: View {
                                     PlayerSurface(controller: model.player, chrome: .full, mode: .normal,
                                                   onAppFull: { app.toggleAppFull() }, onScreenFull: { app.toggleScreenFull() },
                                                   onMiniPlayer: { app.canBack ? app.goBack() : app.go(.home) },
-                                                  onDoubleClick: { app.playerDoubleClick() }, fitVideo: outside)
+                                                  onDoubleClick: { app.playerDoubleClick() }, topLeading: AnyView(backBar),
+                                                  fitVideo: outside)
                                         .matchedPlayer(playerNS)
                                 }
                             }
                                 .modifier(SixteenNine(enabled: !outside))
                                 // Outside layout adds ~100 pt of bars above/below the picture.
-                                .frame(maxWidth: max(520, (g.size.height - (outside ? 290 : 190)) * 16 / 9))
+                                .frame(maxWidth: max(520, (g.size.height - (outside ? 240 : 140)) * 16 / 9))
                                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                // One shadow for the whole player, not one per layer (the heat curve would cast its own).
+                                .compositingGroup()
                                 .shadow(color: .black.opacity(0.5), radius: 24, y: 16)
                             if let e = model.error {
                                 Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(Theme.text2)
@@ -143,7 +139,7 @@ struct VideoScreen: View {
                             }
                         }
                         .padding(.horizontal, 28)
-                        .padding(.top, 16)
+                        .padding(.top, settings.railAutoHide ? 26 : 16)   // clear the traffic lights when the rail is hidden
                         .padding(.bottom, 32)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -156,6 +152,16 @@ struct VideoScreen: View {
             }
         }
         .task { await model.start() }
+    }
+
+    /// Back + 分区, at the top-left of the player instead of a row of its own.
+    private var backBar: some View {
+        HStack(spacing: 6) {
+            ChromeIcon(icon: "chevron.left", help: L("返回")) { app.canBack ? app.goBack() : app.go(.home) }
+            if let p = model.detail?.partition, !p.isEmpty {
+                Text(p).font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+            }
+        }
     }
 }
 
