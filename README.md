@@ -14,11 +14,13 @@ BiliMac is written from scratch in SwiftUI — not a web wrapper. Playback goes 
 
 ## Screenshots
 
-| Home | Video |
+| Home | Light mode |
 |---|---|
-| ![Home](docs/screenshots/en-home.jpg) | ![Video](docs/screenshots/en-video.jpg) |
-
-![Settings](docs/screenshots/en-settings.jpg)
+| ![Home](docs/screenshots/en-home.jpg) | ![Light mode](docs/screenshots/en-light.jpg) |
+| **Video page: danmaku pass behind people** | **Danmaku settings & filters** |
+| ![Video](docs/screenshots/en-video.jpg) | ![Danmaku panel](docs/screenshots/en-danmaku.jpg) |
+| **Creator page** | **Settings: route speed test and quality strategy** |
+| ![Creator page](docs/screenshots/en-space.jpg) | ![Settings](docs/screenshots/en-settings.jpg) |
 
 ## Features
 
@@ -54,7 +56,22 @@ BiliMac is written from scratch in SwiftUI — not a web wrapper. Playback goes 
 
 ## Install
 
-Requires macOS 14 or later and Xcode or the Xcode Command Line Tools (`xcode-select --install`).
+Requires macOS 14 or later, on Apple Silicon or Intel.
+
+### Download
+
+1. Get `BiliMac-x.y.z.dmg` from [Releases](https://github.com/Dime2015/BiliMac/releases/latest), open it and drag BiliMac into Applications.
+2. BiliMac has no Apple Developer ID (it is only ad-hoc signed), so on first launch macOS says it can't verify the developer. Then either:
+   - open System Settings → Privacy & Security, find the BiliMac message near the bottom, click **Open Anyway** and confirm; or
+   - run this once in Terminal:
+
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/BiliMac.app
+     ```
+
+### Build from source
+
+Requires Xcode or the Xcode Command Line Tools (`xcode-select --install`).
 
 ```bash
 git clone https://github.com/Dime2015/BiliMac.git
@@ -62,7 +79,7 @@ cd BiliMac
 ./build.sh --install
 ```
 
-`./build.sh` produces `build/BiliMac.app`; `--install` also copies it to `/Applications`. The app is ad-hoc signed on your machine, so a build you made yourself opens normally.
+`./build.sh` produces `build/BiliMac.app`; `--install` also copies it to `/Applications`; `--dmg` builds a universal (Apple Silicon + Intel) `build/BiliMac-<version>.dmg`. A build you made yourself opens normally.
 
 ## Keyboard shortcuts
 

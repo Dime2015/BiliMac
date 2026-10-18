@@ -6,6 +6,10 @@ struct DanmakuSettingsButton: View {
     /// The player is always dark; the bottom bar follows the app's appearance.
     var inPlayer = true
     @State private var open = false
+    init(inPlayer: Bool = true) {
+        self.inPlayer = inPlayer
+        _open = State(initialValue: inPlayer && Env.openDanmakuPanel)
+    }
     @State private var hover = false
 
     var body: some View {
@@ -68,7 +72,8 @@ struct DanmakuPanel: View {
     private func slider(_ title: String, _ value: Binding<Double>, _ range: ClosedRange<Double>,
                         _ format: @escaping (Double) -> String) -> some View {
         HStack(spacing: 12) {
-            Text(title).font(.system(size: 12.5)).foregroundStyle(Theme.text2).frame(width: 64, alignment: .leading)
+            Text(title).font(.system(size: 12.5)).foregroundStyle(Theme.text2)
+                .lineLimit(1).minimumScaleFactor(0.85).frame(width: 88, alignment: .leading)
             ThinSlider(value: Binding(get: { (value.wrappedValue - range.lowerBound) / (range.upperBound - range.lowerBound) },
                                       set: { value.wrappedValue = range.lowerBound + $0 * (range.upperBound - range.lowerBound) }))
                 .frame(height: 16)
@@ -96,12 +101,13 @@ struct DanmakuFilterEditor: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L("屏蔽等级")).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.text2)
+                        .lineLimit(1).minimumScaleFactor(0.85)
                     if !compact {
                         Text(L("按 B 站给每条弹幕的评分隐藏低质量弹幕，等级越高屏蔽越多"))
                             .font(.system(size: 11.5)).foregroundStyle(Theme.text3)
                     }
                 }
-                .frame(width: compact ? 64 : nil, alignment: .leading)
+                .frame(width: compact ? 88 : nil, alignment: .leading)
                 if !compact { Spacer() }
                 ThinSlider(value: Binding(get: { Double(s.danmakuLevel) / 10 },
                                           set: { s.danmakuLevel = Int(($0 * 10).rounded()) }))

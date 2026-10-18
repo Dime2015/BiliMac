@@ -1,10 +1,28 @@
 #!/bin/bash
-# Builds BiliMac.app (SwiftPM, no Xcode project). Usage: ./build.sh [--run | --install]
+# Builds BiliMac.app (SwiftPM, no Xcode project).
+# Usage: ./build.sh [--install] [--run] [--universal] [--dmg]
+#   --install    copy the app to /Applications
+#   --run        run the built binary (logs go to this terminal)
+#   --universal  Apple Silicon + Intel binary
+#   --dmg        universal build packed into build/BiliMac-<version>.dmg
 set -euo pipefail
 cd "$(dirname "$0")"
 
-swift build -c release
-BIN="$(swift build -c release --show-bin-path)/BiliMac"
+INSTALL=0 RUN=0 UNIVERSAL=0 DMG=0
+for a in "$@"; do
+  case "$a" in
+    --install) INSTALL=1 ;;
+    --run) RUN=1 ;;
+    --universal) UNIVERSAL=1 ;;
+    --dmg) DMG=1; UNIVERSAL=1 ;;
+    *) echo "unknown option: $a" >&2; exit 1 ;;
+  esac
+done
+
+ARCHS=()
+if [[ $UNIVERSAL == 1 ]]; then ARCHS=(--arch arm64 --arch x86_64); fi
+swift build -c release ${ARCHS[@]+"${ARCHS[@]}"}
+BIN="$(swift build -c release ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)/BiliMac"
 
 APP=build/BiliMac.app
 rm -rf "$APP"
@@ -39,14 +57,28 @@ PLIST
 codesign --force --sign - "$APP" >/dev/null
 echo "Built $(pwd)/$APP"
 
-if [[ "${1:-}" == "--install" ]]; then
+if [[ $DMG == 1 ]]; then
+  VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Contents/Info.plist")
+  STAGE=build/dmg
+  OUT="build/BiliMac-$VERSION.dmg"
+  rm -rf "$STAGE" "$OUT"
+  mkdir -p "$STAGE"
+  # No extended attributes or resource forks from this machine in the image.
+  ditto --norsrc --noextattr "$APP" "$STAGE/BiliMac.app"
+  ln -s /Applications "$STAGE/Applications"
+  hdiutil create -volname "BiliMac" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$OUT" >/dev/null
+  rm -rf "$STAGE"
+  echo "Packed $(pwd)/$OUT"
+fi
+
+if [[ $INSTALL == 1 ]]; then
   pkill -x BiliMac 2>/dev/null || true
   rm -rf /Applications/BiliMac.app
   ditto "$APP" /Applications/BiliMac.app
   echo "Installed /Applications/BiliMac.app"
 fi
 
-if [[ "${1:-}" == "--run" ]]; then
+if [[ $RUN == 1 ]]; then
   # Run the binary directly so logs go to this terminal.
   exec "$APP/Contents/MacOS/BiliMac"
 fi

@@ -539,9 +539,14 @@ actor BiliAPI {
         do {
             d = try await anonymousGet(base, params)
         } catch {
-            log("space \(mid) archives (anonymous) failed: \(error); retrying with cookies")
-            try await Task.sleep(for: .milliseconds(600))
-            d = try await get(base, params)
+            log("space \(mid) archives (anonymous) failed: \(error); retrying")
+            do {
+                try await Task.sleep(for: .milliseconds(600))
+                d = try await get(base, params)
+            } catch {
+                try await Task.sleep(for: .seconds(2))
+                d = try await anonymousGet(base, params)
+            }
         }
         let items = d.arr("archives").compactMap(VideoCard.archive)
         return (items, page * 30 < (d.obj("page")?.int("total") ?? 0))

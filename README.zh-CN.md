@@ -14,11 +14,13 @@ BiliMac 用 SwiftUI 从零写成，不是网页套壳。播放走系统的 AVPla
 
 ## 截图
 
-| 首页 | 视频页 |
+| 首页 | 浅色模式 |
 |---|---|
-| ![首页](docs/screenshots/zh-Hans-home.jpg) | ![视频页](docs/screenshots/zh-Hans-video.jpg) |
-
-![设置](docs/screenshots/zh-Hans-settings.jpg)
+| ![首页](docs/screenshots/zh-Hans-home.jpg) | ![浅色模式](docs/screenshots/zh-Hans-light.jpg) |
+| **视频页：弹幕从人身后穿过** | **弹幕设置与屏蔽** |
+| ![视频页](docs/screenshots/zh-Hans-video.jpg) | ![弹幕面板](docs/screenshots/zh-Hans-danmaku.jpg) |
+| **UP 主主页** | **设置：线路测速与画质策略** |
+| ![UP 主主页](docs/screenshots/zh-Hans-space.jpg) | ![设置](docs/screenshots/zh-Hans-settings.jpg) |
 
 ## 功能
 
@@ -54,7 +56,22 @@ BiliMac 用 SwiftUI 从零写成，不是网页套壳。播放走系统的 AVPla
 
 ## 安装
 
-需要 macOS 14 或更高版本，以及 Xcode 或 Xcode Command Line Tools（`xcode-select --install`）。
+需要 macOS 14 或更高版本，Apple 芯片和 Intel 都支持。
+
+### 直接下载
+
+1. 在 [Releases](https://github.com/Dime2015/BiliMac/releases/latest) 下载 `BiliMac-x.y.z.dmg`，打开后把 BiliMac 拖进「应用程序」。
+2. BiliMac 没有 Apple 开发者证书（只有 ad-hoc 签名），第一次打开时 macOS 会提示无法验证开发者。这时：
+   - 打开 系统设置 → 隐私与安全性，在页面下方找到 BiliMac 的提示，点「仍要打开」并确认；
+   - 或者在终端里运行一次：
+
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/BiliMac.app
+     ```
+
+### 从源码构建
+
+需要 Xcode 或 Xcode Command Line Tools（`xcode-select --install`）。
 
 ```bash
 git clone https://github.com/Dime2015/BiliMac.git
@@ -62,7 +79,7 @@ cd BiliMac
 ./build.sh --install
 ```
 
-`./build.sh` 会生成 `build/BiliMac.app`；加上 `--install` 会同时复制到 `/Applications`。应用是本地 ad-hoc 签名的，自己构建的版本可以直接打开。
+`./build.sh` 生成 `build/BiliMac.app`；`--install` 同时复制到 `/Applications`；`--dmg` 生成 Apple 芯片 + Intel 通用版的 `build/BiliMac-<版本>.dmg`。自己构建的版本可以直接打开。
 
 ## 快捷键
 

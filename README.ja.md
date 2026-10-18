@@ -14,11 +14,13 @@ BiliMac は SwiftUI でゼロから書いたアプリで、Web ページのラ�
 
 ## スクリーンショット
 
-| ホーム | 動画ページ |
+| ホーム | ライトモード |
 |---|---|
-| ![ホーム](docs/screenshots/ja-home.jpg) | ![動画ページ](docs/screenshots/ja-video.jpg) |
-
-![設定](docs/screenshots/ja-settings.jpg)
+| ![ホーム](docs/screenshots/ja-home.jpg) | ![ライトモード](docs/screenshots/ja-light.jpg) |
+| **動画ページ：コメントが人物の後ろを通る** | **コメント設定とブロック** |
+| ![動画ページ](docs/screenshots/ja-video.jpg) | ![コメントパネル](docs/screenshots/ja-danmaku.jpg) |
+| **投稿者ページ** | **設定：配信経路の速度テストと画質ポリシー** |
+| ![投稿者ページ](docs/screenshots/ja-space.jpg) | ![設定](docs/screenshots/ja-settings.jpg) |
 
 ## 機能
 
@@ -54,7 +56,22 @@ BiliMac は SwiftUI でゼロから書いたアプリで、Web ページのラ�
 
 ## インストール
 
-macOS 14 以降と、Xcode または Xcode Command Line Tools（`xcode-select --install`）が必要です。
+macOS 14 以降（Apple シリコン・Intel 対応）が必要です。
+
+### ダウンロード
+
+1. [Releases](https://github.com/Dime2015/BiliMac/releases/latest) から `BiliMac-x.y.z.dmg` をダウンロードして開き、BiliMac を「アプリケーション」にドラッグします。
+2. BiliMac には Apple の Developer ID がなく（ad-hoc 署名のみ）、初回起動時に「開発元を確認できません」と表示されます。その場合は次のどちらかを行ってください。
+   - システム設定 → プライバシーとセキュリティ を開き、下の方にある BiliMac の項目で「このまま開く」をクリックして確認する
+   - ターミナルで一度だけ次を実行する
+
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/BiliMac.app
+     ```
+
+### ソースからビルド
+
+Xcode または Xcode Command Line Tools（`xcode-select --install`）が必要です。
 
 ```bash
 git clone https://github.com/Dime2015/BiliMac.git
@@ -62,7 +79,7 @@ cd BiliMac
 ./build.sh --install
 ```
 
-`./build.sh` で `build/BiliMac.app` が作られ、`--install` を付けると `/Applications` にもコピーされます。アプリはローカルで ad-hoc 署名されるので、自分でビルドしたものはそのまま開けます。
+`./build.sh` で `build/BiliMac.app` が作られます。`--install` で `/Applications` にもコピーし、`--dmg` で Apple シリコン + Intel のユニバーサル版 `build/BiliMac-<バージョン>.dmg` を作ります。自分でビルドしたものはそのまま開けます。
 
 ## キーボードショートカット
 
