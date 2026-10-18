@@ -493,17 +493,61 @@ actor BiliAPI {
         }
     }
 
-    /// Newest-first archive list; no signature and rarely rate-limited.
-    private func spaceArchives(mid: Int, page: Int) async throws -> (items: [VideoCard], more: Bool) {
-        let d = try await anonymousGet("https://api.bilibili.com/x/series/recArchivesByKeywords",
+    /// 合集 and 系列 on an uploader's space (public, fetched without cookies).
+    func spaceCollections(mid: Int) async throws -> [SpaceCollection] {
+        var out: [SpaceCollection] = []
+        for p in 1...5 {
+            let d = try await anonymousGet("https://api.bilibili.com/x/polymer/web-space/seasons_series_list",
+                                           ["mid": "\(mid)", "page_num": "\(p)", "page_size": "20"])
+            let lists = d.obj("items_lists") ?? [:]
+            func parse(_ items: [JSON], _ kind: SpaceCollection.Kind, _ idKey: String) -> [SpaceCollection] {
+                items.compactMap { it in
+                    guard let m = it.obj("meta"), let id = m.int(idKey) else { return nil }
+                    let cover = imageURL(m.str("cover")) ?? it.arr("archives").first.flatMap { imageURL($0.str("pic")) }
+                    return SpaceCollection(kind: kind, mid: mid, collectionID: id, name: m.str("name") ?? "", cover: cover, total: m.int("total") ?? 0)
+                }
+            }
+            out += parse(lists.arr("seasons_list"), .season, "season_id") + parse(lists.arr("series_list"), .series, "series_id")
+            if out.count >= (lists.obj("page")?.int("total") ?? 0) { break }
+        }
+        return out
+    }
 
-                              ["mid": "\(mid)", "keywords": "", "ps": "30", "pn": "\(page)"])
+    /// Videos in a 合集 / 系列.
+    func collectionVideos(_ c: SpaceCollection, page: Int) async throws -> (items: [VideoCard], more: Bool) {
+        let d: JSON
+        switch c.kind {
+        case .season:
+            d = try await anonymousGet("https://api.bilibili.com/x/polymer/web-space/seasons_archives_list",
+                                       ["mid": "\(c.mid)", "season_id": "\(c.collectionID)", "sort_reverse": "false",
+                                        "page_num": "\(page)", "page_size": "30"])
+        case .series:
+            d = try await anonymousGet("https://api.bilibili.com/x/series/archives",
+                                       ["mid": "\(c.mid)", "series_id": "\(c.collectionID)", "only_normal": "true", "sort": "desc",
+                                        "pn": "\(page)", "ps": "30"])
+        }
+        let items = d.arr("archives").compactMap(VideoCard.archive)
+        return (items, page * 30 < (d.obj("page")?.int("total") ?? 0))
+    }
+
+    /// Newest-first archive list; no signature. Rate limits (HTTP 412) come and go per device ID and IP,
+    /// so try without cookies, then with them, before giving up.
+    private func spaceArchives(mid: Int, page: Int) async throws -> (items: [VideoCard], more: Bool) {
+        let base = "https://api.bilibili.com/x/series/recArchivesByKeywords"
+        let params = ["mid": "\(mid)", "keywords": "", "ps": "30", "pn": "\(page)"]
+        let d: JSON
+        do {
+            d = try await anonymousGet(base, params)
+        } catch {
+            log("space \(mid) archives (anonymous) failed: \(error); retrying with cookies")
+            try await Task.sleep(for: .milliseconds(600))
+            d = try await get(base, params)
+        }
         let items = d.arr("archives").compactMap(VideoCard.archive)
         return (items, page * 30 < (d.obj("page")?.int("total") ?? 0))
     }
 
     /// mode 3 = 热门, 2 = 最新.
-
     func replies(aid: Int, mode: Int, offset: String, upMid: Int?) async throws -> (items: [Comment], next: String, end: Bool, total: Int) {
         let pagination = "{\"offset\":\"\(offset.replacingOccurrences(of: "\"", with: "\\\""))\"}"
         let d = try await signedGet("https://api.bilibili.com/x/v2/reply/wbi/main", [

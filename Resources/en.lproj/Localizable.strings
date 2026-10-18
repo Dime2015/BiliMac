@@ -90,7 +90,6 @@
 "展开" = "Show More";
 "+ 关注" = "+ Follow";
 "%@ 粉丝 · %@ 投稿" = "%1$@ followers · %2$@ videos";
-"在浏览器中打开个人空间" = "Open Channel in Browser";
 "选集" = "Parts";
 "相关推荐" = "Related";
 "自动连播 %@" = "Autoplay %@";
@@ -188,6 +187,8 @@
 "在任意设备上看过的视频" = "Videos you watched on any device";
 "搜索结果" = "Search Results";
 "没有找到相关视频" = "No matching videos";
+"合集" = "Collection";
+"系列" = "Series";
 "账号" = "Account";
 "设置" = "Settings";
 "登录" = "Sign In";
@@ -314,13 +315,17 @@
 "切换后重新启动 BiliMac 生效" = "Takes effect after BiliMac restarts";
 "立即重新启动" = "Restart Now";
 "投稿视频" = "Videos";
+"合集与系列 %@" = "Collections %@";
 "最新发布" = "Latest";
 "最多播放" = "Most played";
 "这位 UP 主还没有投稿" = "This creator hasn't posted any videos yet";
+"%@ · %@ 个视频" = "%1$@ · %2$@ videos";
 "UP 主" = "Creator";
 "粉丝" = "Followers";
 "获赞" = "Likes";
 "投稿" = "Videos";
+"更多" = "More";
+"复制主页链接" = "Copy page link";
 "没有可测速的视频" = "No video available to test with";
 "没有视频地址" = "No video URL";
 "%.1f亿" = "%.1f亿";

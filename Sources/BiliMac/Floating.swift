@@ -174,7 +174,6 @@ struct MenuRow: View {
 
 struct MenuDivider: View {
     var body: some View { Rectangle().fill(Theme.text.opacity(0.08)).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 6) }
-
 }
 
 struct MenuHeader: View {

@@ -363,7 +363,6 @@ private struct QualityChain: View {
                         Text(qualityNames[qn] ?? "\(qn)")
                             .font(.system(size: 12, weight: i == 0 ? .bold : .medium))
                             .foregroundStyle(i == 0 ? Theme.onPrimary : (usable(qn) ? Theme.text : Theme.text3))
-
                             .padding(.horizontal, 9).padding(.vertical, 4)
                             .background(i == 0 ? Theme.pink : Theme.chip, in: Capsule())
                             .strikethrough(!usable(qn), color: Theme.text3)

@@ -591,7 +591,6 @@ struct Scrubber: View {
                 Capsule().fill(fill).frame(width: w * played, height: trackH).position(x: w * played / 2, y: midY)
                 Circle().fill(style == .bar ? Theme.text : .white).frame(width: 12, height: 12)
                     .shadow(radius: 2)
-
                     .opacity(active ? 1 : 0)
                     .position(x: w * played, y: midY)
                 if style == .player, let x = dragX ?? hover, duration > 0 {

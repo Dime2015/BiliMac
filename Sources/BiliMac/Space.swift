@@ -1,27 +1,34 @@
 import AppKit
 import SwiftUI
 
-/// UP 主主页: banner, avatar, counts, follow, and their videos.
+/// UP 主主页: banner, avatar, counts, follow, their videos and their 合集 / 系列.
 @MainActor
 final class SpaceModel: ObservableObject {
+    enum Tab: Hashable { case videos, collections }
     let mid: Int
     @Published var info: SpaceInfo?
     @Published var error: String?
     @Published var order = "pubdate"
+    @Published var tab = Tab.videos
+    @Published var collections: [SpaceCollection] = []
     @Published var tint: Color = Theme.defaultTint
 
-    init(mid: Int) { self.mid = mid }
+    init(mid: Int) {
+        self.mid = mid
+        if Env.spaceTab == "collections" { tab = .collections }
+    }
 
     func load() async {
         guard info == nil else { return }
+        async let cs = try? BiliAPI.shared.spaceCollections(mid: mid)
         do {
             let i = try await BiliAPI.shared.space(mid: mid)
-
             info = i
             if let t = await TintCache.shared.tint(for: i.face) { tint = t }
         } catch {
             self.error = error.localizedDescription
         }
+        collections = await cs ?? []
     }
 
     func toggleFollow() {
@@ -55,13 +62,33 @@ struct SpacePage: View {
                 VStack(alignment: .leading, spacing: 22) {
                     SpaceHeader(model: model)
                     HStack {
-                        Text(L("投稿视频")).font(.system(size: 22, weight: .black))
+                        if model.collections.isEmpty {
+                            Text(L("投稿视频")).font(.system(size: 22, weight: .black))
+                        } else {
+                            SlidingChips(options: [(SpaceModel.Tab.videos, L("投稿视频")),
+                                                   (.collections, Lf("合集与系列 %@", "\(model.collections.count)"))],
+                                         selection: $model.tab)
+                        }
                         Spacer()
-                        SlidingChips(options: [("pubdate", L("最新发布")), ("click", L("最多播放"))], selection: $model.order, style: .white)
+                        if model.tab == .videos {
+                            SlidingChips(options: [("pubdate", L("最新发布")), ("click", L("最多播放"))], selection: $model.order, style: .white)
+                        }
                     }
-                    ShelfGrid(list: app.list(for: "space:\(mid):\(model.order)"), emptyText: L("这位 UP 主还没有投稿"))
-                        .id(model.order)
+                    switch model.tab {
+                    case .videos:
+                        ShelfGrid(list: app.list(for: "space:\(mid):\(model.order)"), emptyText: L("这位 UP 主还没有投稿"))
+                            .id(model.order)
+                            .padding(.horizontal, -10)
+                    case .collections:
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 214, maximum: 330), spacing: 8, alignment: .top)],
+                                  alignment: .leading, spacing: 8) {
+                            ForEach(model.collections) { c in
+                                Button { app.open(c) } label: { CollectionCard(collection: c) }
+                                    .buttonStyle(.pressableCard)
+                            }
+                        }
                         .padding(.horizontal, -10)
+                    }
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 6)
@@ -69,6 +96,47 @@ struct SpacePage: View {
             }
         }
         .task { await model.load() }
+    }
+}
+
+/// 合集 / 系列 tile: cover with a stacked-cards edge, name, count.
+private struct CollectionCard: View {
+    let collection: SpaceCollection
+    @State private var hover = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ZStack(alignment: .top) {
+                // Two cards peeking out above the cover say "a set of videos".
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.text.opacity(0.08))
+                    .padding(.horizontal, 16).offset(y: -8)
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Theme.text.opacity(0.14))
+                    .padding(.horizontal, 8).offset(y: -4)
+                Cover(url: collection.cover, width: 560)
+                    .overlay(alignment: .bottomTrailing) {
+                        Label("\(collection.total)", systemImage: "list.bullet")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 4))
+                            .padding(6)
+                    }
+            }
+            .padding(.top, 8)
+            .shadow(color: Theme.shadow.opacity(hover ? 1 : 0), radius: hover ? 16 : 0, y: hover ? 10 : 0)
+            .offset(y: hover ? -3 : 0)
+            Text(collection.name)
+                .font(.system(size: 14, weight: .bold))
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            Text(Lf("%@ · %@ 个视频", collection.kind == .season ? L("合集") : L("系列"), "\(collection.total)"))
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.meta)
+        }
+        .padding(10)
+        .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .contentShape(Rectangle())
+        .onHover { h in withAnimation(Motion.pop) { hover = h } }
     }
 }
 
@@ -118,10 +186,7 @@ private struct SpaceHeader: View {
                     }
                     .padding(.top, 8)
                 }
-                CircleIconButton(icon: "safari", label: L("在浏览器中打开个人空间")) {
-                    NSWorkspace.shared.open(URL(string: "https://space.bilibili.com/\(model.mid)")!)
-                }
-                .help(L("在浏览器中打开个人空间"))
+                SpaceMoreButton(mid: model.mid)
                 .padding(.top, 11)
             }
             .padding(.leading, 20)
@@ -155,5 +220,31 @@ private struct SpaceHeader: View {
             Text(formatCount(n)).font(.system(size: 18, weight: .bold)).monospacedDigit()
             Text(label).font(.system(size: 12)).foregroundStyle(Theme.text2)
         }
+    }
+}
+
+/// "…": copy the space link, or open it on the web.
+private struct SpaceMoreButton: View {
+    let mid: Int
+    @State private var open = false
+    private var url: URL { URL(string: "https://space.bilibili.com/\(mid)")! }
+
+    var body: some View {
+        CircleIconButton(icon: "ellipsis", label: L("更多")) { withAnimation(Motion.pop) { open.toggle() } }
+            .help(L("更多"))
+            .floatingPanel(id: "space-more", isPresented: $open, placement: .below(.trailing)) {
+                MenuSurface(width: 220) {
+                    MenuRow(title: L("复制主页链接"), icon: "link") {
+                        open = false
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                        AppModel.shared.notify(L("已复制链接"))
+                    }
+                    MenuRow(title: L("在浏览器中打开"), icon: "safari") {
+                        open = false
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
     }
 }

@@ -116,7 +116,7 @@ private struct PageHost: View {
 
     static func cacheable(_ r: Route) -> Bool {
         switch r {
-        case .home, .dynamics, .history, .watchLater, .favorites, .search, .space: return true
+        case .home, .dynamics, .history, .watchLater, .favorites, .search, .space, .collection: return true
         default: return false
         }
     }
@@ -176,6 +176,10 @@ private struct PageContent: View {
                 ListPage(kicker: L("搜索结果"), title: q, subtitle: nil, key: "search:\(q)", emptyText: L("没有找到相关视频"))
             case .video(let card): VideoScreen(card: card).id(card.bvid)
             case .space(let mid): SpacePage(mid: mid).id(mid)
+            case .collection(let c):
+                ListPage(kicker: c.kind == .season ? L("合集") : L("系列"), title: c.name, subtitle: nil, key: c.listKey,
+                         tint: Theme.tint(hex: 0x3D2A5C, light: 0xE6DDF3))
+
 
             case .settings: EmptyView()
             }
@@ -265,7 +269,7 @@ struct AccountButton: View {
             MenuDivider()
             MenuRow(title: L("个人空间"), icon: "person.crop.circle") {
                 open = false
-                if let mid = app.account.mid { NSWorkspace.shared.open(URL(string: "https://space.bilibili.com/\(mid)")!) }
+                if let mid = app.account.mid { app.go(.space(mid)) }
             }
             MenuRow(title: L("设置"), icon: "gearshape") { open = false; app.go(.settings) }
             MenuDivider()
@@ -729,7 +733,6 @@ struct LoginView: View {
             HStack(spacing: 10) {
                 PillButton(title: L("取消")) { task?.cancel(); done(false) }
                 PillButton(title: L("刷新二维码"), filled: true, tint: Theme.primary) { start() }
-
             }
         }
         .padding(32)

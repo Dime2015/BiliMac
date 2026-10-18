@@ -27,7 +27,7 @@ BiliMac is written from scratch in SwiftUI — not a web wrapper. Playback goes 
 - Featured: an immersive feed that keeps playing; switch with ↑ ↓ or the scroll wheel. *Up Next* starts as a small list, expands on hover, then tucks away and comes back when the pointer nears the right edge
 - Following, History, Watch Later, Favorites
 - Search with history, trending searches and suggestions
-- Creator pages: banner, follower / following / like / video counts, bio, follow button, and their videos sorted by newest or most played. Open one from the avatar or name on a video page or in comments, or from a video card's right-click menu
+- Creator pages: banner, follower / following / like / video counts, bio, follow button, their videos sorted by newest or most played, and their collections and series. Your own space (account menu) opens in the app too. Open one from the avatar or name on a video page or in comments, or from a video card's right-click menu
 - Video page: description, uploader, related videos, comments; like, coin, save, watch later
 - QR-code sign-in (scan with the bilibili mobile app)
 

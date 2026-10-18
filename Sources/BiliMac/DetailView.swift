@@ -330,8 +330,9 @@ private struct SidePanel: View {
                 .background(Theme.elevated)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .contextMenu {
-                    Button(L("在浏览器中打开个人空间")) { NSWorkspace.shared.open(URL(string: "https://space.bilibili.com/\(d.ownerMid)")!) }
+                    Button(L("查看 UP 主主页")) { app.go(.space(d.ownerMid)) }
                 }
+
 
                 if d.pages.count > 1 {
                     VStack(alignment: .leading, spacing: 4) {
@@ -487,7 +488,6 @@ private struct CommentRow: View {
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.text.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-
                 }
             }
         }

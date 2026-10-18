@@ -4,7 +4,8 @@ import Combine
 import SwiftUI
 
 enum Route: Hashable {
-    case home, featured, dynamics, history, watchLater, favorites(Int?), search(String), video(VideoCard), space(Int), settings
+    case home, featured, dynamics, history, watchLater, favorites(Int?), search(String), video(VideoCard), space(Int),
+         collection(SpaceCollection), settings
 
     /// Pages that use the collapsed icon rail instead of the full sidebar.
     var usesRail: Bool {
@@ -141,7 +142,6 @@ final class AppModel: ObservableObject {
             else if r.hasPrefix("search:") { submitSearch(String(r.dropFirst(7))) }
             else if r.hasPrefix("video:") { open(VideoCard(bvid: String(r.dropFirst(6)), title: "", cover: nil, owner: "")) }
             else if r.hasPrefix("space:"), let mid = Int(r.dropFirst(6)) { go(.space(mid)) }
-
         }
     }
 
@@ -373,6 +373,14 @@ final class AppModel: ObservableObject {
     // MARK: Lists
 
     /// Lazily created list (kept while navigating).
+    /// Collections opened so far, so `list(for:)` can build their loaders from the key.
+    private var collections: [String: SpaceCollection] = [:]
+
+    func open(_ c: SpaceCollection) {
+        collections[c.listKey] = c
+        go(.collection(c))
+    }
+
     func list(for key: String) -> PagedList {
         if let l = lists[key] { return l }
         let api = BiliAPI.shared
@@ -413,6 +421,12 @@ final class AppModel: ObservableObject {
                     let p = Int(s["p"] ?? "1")!
                     let r = try await api.search(q, page: p)
                     return (r.items, ["p": "\(p + 1)"], p < r.pages)
+                }
+            } else if let c = collections[key] {
+                l = PagedList { s in
+                    let p = Int(s["p"] ?? "1")!
+                    let r = try await api.collectionVideos(c, page: p)
+                    return (r.items, ["p": "\(p + 1)"], r.more)
                 }
             } else if key.hasPrefix("space:") {
                 // space:<mid>:<order>

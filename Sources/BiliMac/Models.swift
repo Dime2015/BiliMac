@@ -107,6 +107,20 @@ struct Relation {
     var attention = false
 }
 
+/// A 合集 (season) or 系列 (series) on an uploader's space.
+struct SpaceCollection: Identifiable, Hashable {
+    enum Kind: String { case season, series }
+    let kind: Kind
+    let mid: Int
+    let collectionID: Int
+    let name: String
+    let cover: URL?
+    let total: Int
+    var id: String { "\(kind.rawValue):\(mid):\(collectionID)" }
+    /// PagedList key.
+    var listKey: String { id }
+}
+
 /// An uploader's space (UP 主主页) header.
 struct SpaceInfo {
     let mid: Int
@@ -145,7 +159,6 @@ struct Comment: Identifiable {
         }
         return Comment(
             id: id, mid: r.int("mid") ?? 0, uname: m.str("uname") ?? "", avatar: imageURL(m.str("avatar")),
-
             level: m.obj("level_info")?.int("current_level") ?? 0,
             isVip: (m.obj("vip")?.int("vipStatus") ?? 0) == 1,
             message: r.obj("content")?.str("message") ?? "", like: r.int("like") ?? 0,

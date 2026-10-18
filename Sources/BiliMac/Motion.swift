@@ -80,7 +80,6 @@ struct SlidingChips<Value: Hashable>: View {
                                     .matchedGeometryEffect(id: "pill", in: ns)
                             } else {
                                 Capsule().fill(Theme.text.opacity(0.07))
-
                             }
                         }
                         .contentShape(Capsule())

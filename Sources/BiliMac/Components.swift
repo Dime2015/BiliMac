@@ -491,7 +491,6 @@ struct ThinSlider: View {
                 Capsule().fill(Theme.line)
                 Capsule().fill(hover ? Theme.pink : Theme.text).frame(width: g.size.width * value)
                 Circle().fill(Theme.text).frame(width: 12, height: 12).offset(x: g.size.width * value - 6).opacity(hover ? 1 : 0)
-
             }
             .frame(height: 4)
             .frame(maxHeight: .infinity)

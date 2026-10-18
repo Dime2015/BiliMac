@@ -16,6 +16,8 @@ enum Env {
     static let pinChrome = e["BILIMAC_PIN_CHROME"] != nil
     /// Pretend the pointer hovers the progress bar at this fraction (screenshots / checks), e.g. 0.4.
     static let scrubHover = e["BILIMAC_SCRUB_HOVER"].flatMap(Double.init)
+    /// Open UP 主主页 on a tab: videos | collections (screenshots / checks).
+    static let spaceTab = e["BILIMAC_SPACE_TAB"]
     /// Window content size, e.g. 1440x900.
     static let windowSize: CGSize? = e["BILIMAC_WINDOW"].flatMap { s in
         let p = s.split(separator: "x").compactMap { Double($0) }

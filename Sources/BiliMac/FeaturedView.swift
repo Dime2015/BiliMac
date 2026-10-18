@@ -83,7 +83,6 @@ struct FeaturedView: View {
         .environment(\.colorScheme, .dark)   // 精选 is a player page: always dark
         .task { await feed.take() }
         .onAppear { newVideo() }
-
         .onChange(of: feed.current.map(ObjectIdentifier.init)) { newVideo() }
     }
 

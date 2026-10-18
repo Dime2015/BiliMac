@@ -172,7 +172,6 @@ struct FavoritesPage: View {
         if let id = folderID, let folder = app.favFolders.first(where: { $0.id == id }) ?? app.favFolders.first {
             let list = app.list(for: "fav:\(folder.id)")
             MainPanel(tint: Theme.tint(hex: 0x3D2A5C, light: 0xE6DDF3)) {
-
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         PageHeader(kicker: L("收藏夹"), title: folder.title, subtitle: Lf("共 %@ 个视频", "\(folder.count)"), list: list)
