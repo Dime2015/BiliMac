@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreImage
 import Vision
+import VideoToolbox
 
 /// 防挡弹幕: finds people in the playing video on-device (Vision person segmentation) so the danmaku layer
 /// can be cut out around them. Works for any video; the official web player instead downloads masks that
@@ -17,12 +18,19 @@ final class PersonMasker: ObservableObject, @unchecked Sendable {
     /// Latest mask: opaque where a person is, stretched over the picture rect when drawn.
     var mask: CGImage? { lock.lock(); defer { lock.unlock() }; return _mask }
 
+    /// Native-size 10-bit YUV. Asking AVFoundation for scaled 8-bit BGRA here made it reconfigure the
+    /// shared decode path, and HLG / Dolby Vision video then showed blown-out in the player itself;
+    /// so the output stays close to the decoder's format and we scale on our side.
     private let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
-        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-        kCVPixelBufferWidthKey as String: 512,
-        kCVPixelBufferHeightKey as String: 288,
+        kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange,
         kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
     ])
+    private lazy var transfer: VTPixelTransferSession? = {
+        var t: VTPixelTransferSession?
+        VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &t)
+        return t
+    }()
+    private var small: CVPixelBuffer?
     private let queue = DispatchQueue(label: "bilimac.person-mask", qos: .userInitiated)
     private let request: VNGeneratePersonSegmentationRequest = {
         let r = VNGeneratePersonSegmentationRequest()
@@ -64,7 +72,15 @@ final class PersonMasker: ObservableObject, @unchecked Sendable {
     private func tick() {
         let t = output.itemTime(forHostTime: CACurrentMediaTime())
         guard output.hasNewPixelBuffer(forItemTime: t),
-              let frame = output.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: nil) else { return }
+              let full = output.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: nil) else { return }
+        // Scale down to 512 px wide BGRA for Vision (GPU, keeps the aspect ratio).
+        let w = 512, h = max(2, Int(512 * Double(CVPixelBufferGetHeight(full)) / Double(max(1, CVPixelBufferGetWidth(full)))) & ~1)
+        if small == nil || CVPixelBufferGetWidth(small!) != w || CVPixelBufferGetHeight(small!) != h {
+            small = nil
+            CVPixelBufferCreate(nil, w, h, kCVPixelFormatType_32BGRA,
+                                [kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()] as CFDictionary, &small)
+        }
+        guard let transfer, let frame = small, VTPixelTransferSessionTransferImage(transfer, from: full, to: frame) == noErr else { return }
         do {
             try VNImageRequestHandler(cvPixelBuffer: frame).perform([request])
         } catch { return }
