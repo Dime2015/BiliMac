@@ -61,6 +61,15 @@ AV1 needs a third of AVC's bandwidth, which helps a lot on overseas connections;
   - **Voice boost**: brings dialogue forward. Both audio effects together cost about 1.5% CPU, with audio and picture kept within a few milliseconds.
 - **Chinese / English / Japanese** UI; dark, a light theme built on bilibili pink, or follow the system.
 
+### 5. Polls, lossless audio and messages
+
+![Polls and Hi-Res lossless](docs/screenshots/en-hl-interactive.jpg)
+
+- **Interactive danmaku**: polls and star ratings that creators pin to moments of a video show up at that moment and position over the picture; vote or rate right there and see the results.
+- **Hi-Res lossless / Dolby Atmos**: Premium accounts can play FLAC lossless and Dolby Atmos tracks. When a video has one, a *Hi-Res Lossless* or *Dolby Atmos* mark in the bottom bar switches it on or off; Settings → Playback → Audio quality picks which one comes first.
+- **Comment and send danmaku**: post comments, reply to them and like them on the video page; press Return while watching (or the pencil button in the bottom bar) to send danmaku in scrolling / top / bottom mode and a color of your choice. Yours appears at once, framed.
+- **Messages**: a *Messages* page with an unread count shows private chats, replies, mentions, likes and system notices, and you can reply to chats in the app.
+
 ## Screenshots
 
 | Home | Light mode |
@@ -77,9 +86,11 @@ AV1 needs a third of AVC's bandwidth, which helps a lot on overseas connections;
 - Home: For You / Popular / Rankings, plus "continue watching" when signed in
 - Featured: an immersive feed that keeps playing; switch with ↑ ↓ or the scroll wheel. *Up Next* starts as a small list, expands on hover, then tucks away and comes back when the pointer nears the right edge
 - Following, History, Watch Later, Favorites
+- Messages: private chats (with replies), replies to you, mentions, likes and system notices, with an unread count in the sidebar
 - Search with history, trending searches and suggestions
 - Creator pages: banner, follower / following / like / video counts, bio, follow button, their videos sorted by newest or most played, and their collections and series. Your own space (account menu) opens in the app too. Open one from the avatar or name on a video page or in comments, or from a video card's right-click menu
-- Video page: description, uploader, related videos, comments; like, coin, save, watch later
+- Video page: description, uploader, related videos, comments; like, coin, save, watch later; post and reply to comments, like comments
+- Leave Featured and come back: it picks up the same video at the same point
 - QR-code sign-in (scan with the bilibili mobile app)
 
 **Player**
@@ -90,16 +101,20 @@ AV1 needs a third of AVC's bandwidth, which helps a lot on overseas connections;
 - Thumbnail previews while scrubbing
 - Heat curve on the progress bar, drawn from danmaku density, that shows the busiest moments (like YouTube's *Most replayed*). bilibili retired its official heat endpoint, so BiliMac computes it locally
 - Danmaku (bullet comments) with adjustable opacity, size, speed and area, plus filters like the official player's: by type (scrolling / top / bottom / colored), block level, and a keyword / regex / user block list you can import from your bilibili account. The settings button sits next to the danmaku toggle
+- Send danmaku with Return or the pencil button: scrolling / top / bottom and a color; yours shows up right away, framed
+- Interactive danmaku: creators' polls and ratings appear at their moment in the video and you can answer them (Settings → Danmaku → Polls & ratings)
 - Keep people clear: people in the picture are found on-device with Vision and danmaku pass behind them. Works on every video, not just the ones bilibili ships masks for
 - YouTube-style keyboard shortcuts (see below)
 
 **Quality and routes**
 - Quality strategy: Maximum (4K → 1080P high bitrate → 1080P60 → …), HD, or Data Saver; optionally prefer HDR / Dolby Vision
-- Steps down one level automatically when playback keeps stalling (a quality you picked by hand is never changed)
+- Steps down one level when playback keeps stalling and back up once the network recovers (a quality you picked by hand is never changed; pausing and seeking don't count as stalls)
+- HDR brightness: Full / Soft / Convert to SDR; Dolby Vision can play the official way (ignoring the Dolby dynamic metadata, brighter)
+- Audio quality: Hi-Res lossless (FLAC) / Dolby Atmos / Standard for Premium accounts, switchable from the bottom bar
 - Codec preference: Auto (hardware first) / HEVC / AVC / AV1
 - **Video route**: outside mainland China, bilibili hands out overseas CDN nodes, and uncached segments there often crawl at under 1 Mbps. BiliMac can rewrite video requests to the mainland nodes `08c` / `hwb` / `hw`, or leave them alone. A built-in speed test compares the nodes. Background and measurements are in the sister project [B站加速 (bilibili macOS overseas accelerator)](https://github.com/Dime2015/bilibili-macos-overseas-accelerator)
 
-**Appearance**: dark, a light theme built on bilibili pink, or follow the system (Settings → General → Appearance). The player always stays dark.
+**Appearance**: dark, a light theme built on bilibili pink, or follow the system (the switch in the top bar, or Settings → General → Appearance). The player always stays dark. In a narrow window the sidebar folds into an icon rail.
 
 **Languages**: the UI is available in Simplified Chinese, English and Japanese. It follows the system by default; you can override it in Settings → General → Language.
 
@@ -144,6 +159,7 @@ cd BiliMac
 | F | Full Screen |
 | Esc | Step out of full screen |
 | D · I · M | Danmaku · stats · mute |
+| Return | Send danmaku |
 | ⌘F | Search |
 | ⌘[ / ⌘] | Back / forward |
 | ⌘R | Refresh list |

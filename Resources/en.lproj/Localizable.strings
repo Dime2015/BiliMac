@@ -301,8 +301,8 @@
 "没有找到相关视频" = "No matching videos";
 "合集" = "Collection";
 "系列" = "Series";
-"账号" = "Account";
 "设置" = "Settings";
+"账号" = "Account";
 "硬币 %@" = "%@ coins";
 "个人空间" = "My Channel";
 "退出登录" = "Sign Out";
@@ -425,6 +425,7 @@
 "减速 / 加速" = "Slower / faster";
 "逐级退出全屏" = "Step out of full screen";
 "弹幕 · 统计信息 · 静音" = "Danmaku · stats · mute";
+"发弹幕" = "Send danmaku";
 "刷新列表" = "Refresh list";
 "打开设置" = "Open Settings";
 "每个视频按这个顺序取第一个可用的画质：" = "Each video plays the first quality in this order that it has:";

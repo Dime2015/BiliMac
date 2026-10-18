@@ -331,6 +331,7 @@ T = {
 "在当前播放位置发送；彩色、顶部和底部弹幕可能需要更高的账号等级或大会员": ("Sent at the current position; colors, top and bottom danmaku may need a higher account level or Premium", "現在の再生位置に送信します。色付き・上・下の弾幕はアカウントレベルや大会員が必要な場合があります"),
 "弹幕已发送": ("Danmaku sent", "弾幕を送信しました"),
 "弹幕发送失败：%@": ("Couldn't send danmaku: %@", "弾幕を送信できませんでした：%@"),
+"发弹幕": ("Send danmaku", "弾幕を送る"),
 "更多": ("More", "その他"),
 "网络恢复，已切回 %@": ("Network recovered — back to %@", "回線が回復したため %@ に戻しました"),
 "卡顿时自动降档，恢复后升回": ("Step down on stalls, back up on recovery", "途切れたら画質を下げ、回復したら戻す"),

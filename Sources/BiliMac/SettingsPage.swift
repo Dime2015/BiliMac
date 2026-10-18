@@ -356,7 +356,7 @@ private struct KeysSection: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle(text: L("快捷键"))
             ForEach([(L("空格"), L("播放 / 暂停")), ("← / →", L("后退 / 前进 5 秒")), ("↑ / ↓", L("精选中切换上一个 / 下一个，其它页面调节音量")),
-                     ("J / L", L("后退 / 前进 10 秒")), ("0 – 9", L("跳到 0% – 90% 的位置")), ("< >", L("减速 / 加速")), ("T", L("应用内全屏")), ("F", L("屏幕全屏")), ("Esc", L("逐级退出全屏")), ("D · I · M", L("弹幕 · 统计信息 · 静音")), ("⌘R", L("刷新列表")), ("⌘,", L("打开设置"))], id: \.0) { k, v in
+                     ("J / L", L("后退 / 前进 10 秒")), ("0 – 9", L("跳到 0% – 90% 的位置")), ("< >", L("减速 / 加速")), ("T", L("应用内全屏")), ("F", L("屏幕全屏")), ("Esc", L("逐级退出全屏")), ("D · I · M", L("弹幕 · 统计信息 · 静音")), ("⏎", L("发弹幕")), ("⌘R", L("刷新列表")), ("⌘,", L("打开设置"))], id: \.0) { k, v in
                 Row(title: v) {
                     Text(k).font(.system(size: 12, weight: .semibold, design: .monospaced)).foregroundStyle(Theme.text2)
                         .padding(.horizontal, 8).padding(.vertical, 3)
