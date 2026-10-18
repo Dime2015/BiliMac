@@ -127,6 +127,11 @@ struct VideoScreen: View {
                                 // Outside layout adds ~100 pt of bars above/below the picture.
                                 .frame(maxWidth: max(520, (g.size.height - (outside ? 240 : 140)) * 16 / 9))
                                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                // In dark mode the black player meets a near-black page and its edge disappears
+                                // (the shadow can't show on black either), so trace it with a hairline.
+                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(Color.dyn(0xFFFFFF, 0x000000, darkAlpha: 0.1, lightAlpha: 0), lineWidth: 1)
+                                    .allowsHitTesting(false))
                                 // One shadow for the whole player, not one per layer (the heat curve would cast its own).
                                 .compositingGroup()
                                 .shadow(color: Theme.shadow, radius: 24, y: 16)
