@@ -146,7 +146,23 @@ struct SearchTextField: NSViewRepresentable {
 
     func updateNSView(_ f: SearchNSTextField, context: Context) {
         context.coordinator.parent = self
-        if f.stringValue != text { f.stringValue = text }
+        // While editing, only push text that changed from code (the clear button). SwiftUI also calls this with a
+        // stale value while a keystroke is still on its way; writing that back and then the new value selected
+        // all the text, so the next key replaced it — and any write while an input method (pinyin, kana) is
+        // composing throws the composition away. Both cut off Chinese input.
+        let c = context.coordinator
+        defer { c.lastText = text }
+        if let editor = f.currentEditor() as? NSTextView {
+            if text != c.lastText, text != c.typed, editor.string != text, !editor.hasMarkedText() {
+                f.stringValue = text
+                c.typed = text
+            }
+        } else if f.stringValue != text {
+            f.stringValue = text
+        }
+        // Touch the cell only when the placeholder really changes, not on every keystroke.
+        guard context.coordinator.placeholder != placeholder else { return }
+        context.coordinator.placeholder = placeholder
         f.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
             .foregroundColor: NSColor(name: nil) { a in
                 a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.42) : NSColor(hex: 0x9499A0)
@@ -156,6 +172,11 @@ struct SearchTextField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SearchTextField
+        /// The last text that came from the user's typing.
+        var typed = ""
+        var placeholder: String?
+        /// The bound value at the previous update, to tell a real change from a stale repeat.
+        var lastText = ""
         init(_ p: SearchTextField) { parent = p }
 
         func controlTextDidBeginEditing(_ n: Notification) {
@@ -164,13 +185,17 @@ struct SearchTextField: NSViewRepresentable {
 
         func controlTextDidChange(_ n: Notification) {
             guard let f = n.object as? NSTextField else { return }
+            // Pinyin still being composed: wait for the committed characters.
+            if let editor = f.currentEditor() as? NSTextView, editor.hasMarkedText() { return }
             // A pasted or injected newline means "search", never part of the query.
             if f.stringValue.contains(where: \.isNewline) {
                 f.stringValue = f.stringValue.filter { !$0.isNewline }
+                typed = f.stringValue
                 parent.text = f.stringValue
                 parent.onSubmit()
                 return
             }
+            typed = f.stringValue
             parent.text = f.stringValue
             parent.onEdit()
         }
