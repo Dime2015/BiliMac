@@ -231,6 +231,9 @@
 "一直显示" = "Always";
 "自动隐藏" = "Auto-hide";
 "不显示" = "Never";
+"跟随系统" = "System";
+"浅色" = "Light";
+"深色" = "Dark";
 "悬停时显示" = "On hover";
 "极致" = "Maximum";
 "高清" = "HD";
@@ -304,6 +307,8 @@
 "每个视频按这个顺序取第一个可用的画质：" = "Each video plays the first quality in this order that it has:";
 "当前账号不是大会员，划线的档位会自动跳过" = "This account isn’t Premium — crossed-out levels are skipped";
 "通用" = "General";
+"外观" = "Appearance";
+"播放器始终保持深色" = "The player always stays dark";
 "语言" = "Language";
 "切换后重新启动 BiliMac 生效" = "Takes effect after BiliMac restarts";
 "立即重新启动" = "Restart Now";

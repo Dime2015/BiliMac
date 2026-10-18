@@ -111,7 +111,7 @@ final class SearchNSTextField: NSTextField {
         tv.isAutomaticTextReplacementEnabled = false
         tv.isAutomaticQuoteSubstitutionEnabled = false
         tv.inlinePredictionType = .no
-        tv.insertionPointColor = .white
+        tv.insertionPointColor = .themeText
     }
 }
 
@@ -133,7 +133,7 @@ struct SearchTextField: NSViewRepresentable {
         f.drawsBackground = false
         f.focusRingType = .none
         f.font = .systemFont(ofSize: 14.5)
-        f.textColor = .white
+        f.textColor = .themeText
         f.isAutomaticTextCompletionEnabled = false
         f.contentType = nil
         f.cell?.wraps = false
@@ -148,7 +148,9 @@ struct SearchTextField: NSViewRepresentable {
         context.coordinator.parent = self
         if f.stringValue != text { f.stringValue = text }
         f.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .foregroundColor: NSColor(white: 1, alpha: 0.42), .font: NSFont.systemFont(ofSize: 14.5),
+            .foregroundColor: NSColor(name: nil) { a in
+                a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(white: 1, alpha: 0.42) : NSColor(hex: 0x9499A0)
+            }, .font: NSFont.systemFont(ofSize: 14.5),
         ])
     }
 
@@ -198,7 +200,7 @@ struct SearchBox: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass").font(.system(size: 16, weight: .medium))
-                .foregroundStyle(focused ? .white : Theme.text2)
+                .foregroundStyle(focused ? Theme.text : Theme.text2)
             SearchTextField(text: $app.searchText, placeholder: search.placeholder,
                             onFocus: { f in
                                 focused = f
@@ -217,8 +219,8 @@ struct SearchBox: View {
         }
         .padding(.horizontal, 16)
         .frame(width: 420, height: 44)
-        .background(focused ? Color(hex: 0x2A2A2A) : Theme.raised, in: Capsule())
-        .overlay(Capsule().strokeBorder(focused ? .white : .clear, lineWidth: 1.5))
+        .background(focused ? Color.dyn(0x2A2A2A, 0xFFFFFF) : Theme.raised, in: Capsule())
+        .overlay(Capsule().strokeBorder(focused ? Color.dyn(0xFFFFFF, 0xFB7299) : .clear, lineWidth: 1.5))
         .animation(Motion.press, value: focused)
         .animation(Motion.pop, value: app.searchText.isEmpty)
         .floatingPanel(id: "search", isPresented: $open, placement: .below(.leading)) {
@@ -295,7 +297,7 @@ private struct HistoryChip: View {
         Button(action: action) {
             Text(text).font(.system(size: 12.5)).lineLimit(1)
                 .padding(.horizontal, 11).padding(.vertical, 5)
-                .background(hover || highlighted ? Color(hex: 0x4A4A4A) : Color(hex: 0x3A3A3A), in: Capsule())
+                .background(hover || highlighted ? Color.dyn(0x4A4A4A, 0xF8DCE6) : Color.dyn(0x3A3A3A, 0xFCEBF1), in: Capsule())
         }
         .buttonStyle(.pressable)
         .onHover { hover = $0 }
@@ -322,7 +324,7 @@ private struct HotRow: View {
                 Spacer()
             }
             .padding(.horizontal, 10).frame(height: 34)
-            .background(hover || highlighted ? Color(hex: 0x3E3E3E) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(hover || highlighted ? Theme.menuHover : .clear, in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
@@ -345,7 +347,7 @@ private struct SuggestRow: View {
                 Spacer()
             }
             .padding(.horizontal, 10).frame(height: 34)
-            .background(hover || highlighted ? Color(hex: 0x3E3E3E) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(hover || highlighted ? Theme.menuHover : .clear, in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
@@ -358,7 +360,8 @@ private struct SuggestRow: View {
             return Text(text).font(.system(size: 13.5))
         }
         return Text(text[..<r.lowerBound]).font(.system(size: 13.5)).foregroundColor(Theme.text2)
-            + Text(text[r]).font(.system(size: 13.5, weight: .bold)).foregroundColor(.white)
+            + Text(text[r]).font(.system(size: 13.5, weight: .bold)).foregroundColor(Theme.text)
+
             + Text(text[r.upperBound...]).font(.system(size: 13.5)).foregroundColor(Theme.text2)
     }
 }

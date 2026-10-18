@@ -33,7 +33,7 @@ struct SettingsPage: View {
                         } label: {
                             Text(L(s.rawValue))
                                 .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(selected == s ? .white : Theme.text2)
+                                .foregroundStyle(selected == s ? Theme.text : Theme.text2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 12).frame(height: 40)
                                 .background(selected == s ? Theme.raised : .clear, in: RoundedRectangle(cornerRadius: 6))
@@ -84,7 +84,7 @@ private struct Row<Trailing: View>: View {
         HStack(spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.system(size: 14.5))
-                if let subtitle { Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Color(hex: 0xA7A7A7)) }
+                if let subtitle { Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Theme.meta) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             trailing()
@@ -103,7 +103,7 @@ private struct ToggleRow<Extra: View>: View {
         Toggle(isOn: $isOn) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.system(size: 14.5))
-                if let subtitle { Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Color(hex: 0xA7A7A7)).fixedSize(horizontal: false, vertical: true) }
+                if let subtitle { Text(subtitle).font(.system(size: 12.5)).foregroundStyle(Theme.meta).fixedSize(horizontal: false, vertical: true) }
                 extra()
             }
         }
@@ -147,8 +147,8 @@ private struct RouteSection: View {
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(L("视频线路")).font(.system(size: 14.5))
-                    (Text(L("把海外节点改写到所选节点 · 当前 ")) + Text(currentHost).font(.system(size: 12, design: .monospaced)).foregroundColor(Color(hex: 0xD0D0D0)))
-                        .font(.system(size: 12.5)).foregroundStyle(Color(hex: 0xA7A7A7))
+                    (Text(L("把海外节点改写到所选节点 · 当前 ")) + Text(currentHost).font(.system(size: 12, design: .monospaced)).foregroundColor(Theme.text2))
+                        .font(.system(size: 12.5)).foregroundStyle(Theme.meta)
                     if let e = test.error { Text(e).font(.system(size: 12)).foregroundStyle(Theme.pink) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -169,7 +169,7 @@ private struct RouteSection: View {
                                 .font(.system(size: 10.5, design: .monospaced))
                                 .opacity(0.8)
                             }
-                            .foregroundStyle(s.cdnNode == n ? .black : Color(hex: 0xD0D0D0))
+                            .foregroundStyle(s.cdnNode == n ? Theme.onPrimary : Theme.text2)
                             .frame(minWidth: 64)
                             .padding(.vertical, 6).padding(.horizontal, 8)
                             .background(s.cdnNode == n ? Theme.pink : .clear, in: RoundedRectangle(cornerRadius: 6))
@@ -180,7 +180,7 @@ private struct RouteSection: View {
                     }
                 }
                 .padding(3)
-                .background(.black, in: RoundedRectangle(cornerRadius: 8))
+                .background(Color.dyn(0x000000, 0xF5E3EA), in: RoundedRectangle(cornerRadius: 8))
                 Button(test.running == nil ? L("测速") : "…") { Task { await test.run() } }
                     .buttonStyle(.pressable)
                     .font(.system(size: 13, weight: .bold))
@@ -355,14 +355,15 @@ private struct QualityChain: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L("每个视频按这个顺序取第一个可用的画质：")).font(.system(size: 12.5)).foregroundStyle(Color(hex: 0xA7A7A7))
+            Text(L("每个视频按这个顺序取第一个可用的画质：")).font(.system(size: 12.5)).foregroundStyle(Theme.meta)
             FlowLayout(spacing: 6) {
                 ForEach(Array(order.enumerated()), id: \.element) { i, qn in
                     HStack(spacing: 6) {
                         if i > 0 { Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.text3) }
                         Text(qualityNames[qn] ?? "\(qn)")
                             .font(.system(size: 12, weight: i == 0 ? .bold : .medium))
-                            .foregroundStyle(i == 0 ? .black : (usable(qn) ? .white : Theme.text3))
+                            .foregroundStyle(i == 0 ? Theme.onPrimary : (usable(qn) ? Theme.text : Theme.text3))
+
                             .padding(.horizontal, 9).padding(.vertical, 4)
                             .background(i == 0 ? Theme.pink : Theme.chip, in: Capsule())
                             .strikethrough(!usable(qn), color: Theme.text3)
@@ -378,9 +379,13 @@ private struct QualityChain: View {
 
 private struct GeneralSection: View {
     @State private var language = AppLanguage.override
+    @ObservedObject private var s = AppSettings.shared
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle(text: L("通用"))
+            Row(title: L("外观"), subtitle: L("播放器始终保持深色")) {
+                SlidingChips(options: AppAppearance.allCases.map { ($0, $0.label) }, selection: $s.appearance)
+            }
             Row(title: L("语言"), subtitle: L("切换后重新启动 BiliMac 生效")) {
                 Dropdown(options: AppLanguage.choices, selection: $language)
             }

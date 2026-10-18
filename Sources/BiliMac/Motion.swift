@@ -72,14 +72,15 @@ struct SlidingChips<Value: Hashable>: View {
                 } label: {
                     Text(t)
                         .font(.system(size: 13, weight: on ? .semibold : .regular))
-                        .foregroundStyle(on ? .black : .white)
+                        .foregroundStyle(on ? Theme.onPrimary : Theme.text)
                         .padding(.horizontal, 13).padding(.vertical, 6)
                         .background {
                             if on {
-                                Capsule().fill(style == .pink ? Theme.pink : .white)
+                                Capsule().fill(style == .pink ? Theme.pink : Theme.primary)
                                     .matchedGeometryEffect(id: "pill", in: ns)
                             } else {
-                                Capsule().fill(.white.opacity(0.1))
+                                Capsule().fill(Theme.text.opacity(0.07))
+
                             }
                         }
                         .contentShape(Capsule())

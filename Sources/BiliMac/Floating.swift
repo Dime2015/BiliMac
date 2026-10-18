@@ -130,10 +130,10 @@ struct MenuSurface<Content: View>: View {
         VStack(alignment: .leading, spacing: 0) { content() }
             .padding(4)
             .frame(width: width, alignment: .leading)
-            .background(Color(hex: 0x282828), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(.white.opacity(0.07)))
-            .shadow(color: .black.opacity(0.55), radius: 24, y: 12)
-            .foregroundStyle(.white)
+            .background(Theme.menu, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.text.opacity(0.07)))
+            .shadow(color: Theme.shadow, radius: 24, y: 12)
+            .foregroundStyle(Theme.text)
     }
 }
 
@@ -155,7 +155,7 @@ struct MenuRow: View {
                         .foregroundStyle(enabled ? Theme.text2 : Theme.text3)
                 }
                 Text(title).font(.system(size: 13.5, weight: selected ? .bold : .regular))
-                    .foregroundStyle(selected ? Theme.pink : (enabled ? .white : Theme.text3))
+                    .foregroundStyle(selected ? Theme.pink : (enabled ? Theme.text : Theme.text3))
                     .lineLimit(1)
                 Spacer(minLength: 16)
                 if let detail { Text(detail).font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.pink) }
@@ -163,7 +163,7 @@ struct MenuRow: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 34)
-            .background((hover || highlighted) && enabled ? Color(hex: 0x3E3E3E) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .background((hover || highlighted) && enabled ? Theme.menuHover : .clear, in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
@@ -173,7 +173,8 @@ struct MenuRow: View {
 }
 
 struct MenuDivider: View {
-    var body: some View { Rectangle().fill(.white.opacity(0.08)).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 6) }
+    var body: some View { Rectangle().fill(Theme.text.opacity(0.08)).frame(height: 1).padding(.vertical, 4).padding(.horizontal, 6) }
+
 }
 
 struct MenuHeader: View {

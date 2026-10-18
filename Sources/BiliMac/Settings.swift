@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import VideoToolbox
 
@@ -48,6 +49,26 @@ enum InfoOverlayMode: String, CaseIterable, Identifiable {
         case .always: return L("一直显示")
         case .auto: return L("自动隐藏")
         case .off: return L("不显示")
+        }
+    }
+}
+
+/// Light / dark / follow the system. The player itself always stays dark.
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .system: return L("跟随系统")
+        case .light: return L("浅色")
+        case .dark: return L("深色")
+        }
+    }
+    @MainActor func apply() {
+        switch self {
+        case .system: NSApp.appearance = nil
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
         }
     }
 }
@@ -127,6 +148,13 @@ final class AppSettings: ObservableObject {
     @Published var chromeLayout: ChromeLayout { didSet { d.set(chromeLayout.rawValue, forKey: "chromeLayout") } }
     @Published var infoOverlay: InfoOverlayMode { didSet { d.set(infoOverlay.rawValue, forKey: "infoOverlay") } }
     @Published var heatMode: HeatMode { didSet { d.set(heatMode.rawValue, forKey: "heatMode") } }
+    @Published var appearance: AppAppearance {
+        didSet {
+            d.set(appearance.rawValue, forKey: "appearance")
+            let a = appearance
+            Task { @MainActor in a.apply() }
+        }
+    }
     /// 精选 / video page: icon rail slides in from the left edge instead of staying put.
     @Published var railAutoHide: Bool { didSet { d.set(railAutoHide, forKey: "railAutoHide") } }
     /// Double-click on the video: false = 应用内全屏, true = 屏幕全屏.
@@ -162,6 +190,7 @@ final class AppSettings: ObservableObject {
         chromeLayout = ChromeLayout(rawValue: d.string(forKey: "chromeLayout") ?? "") ?? .outside
         infoOverlay = InfoOverlayMode(rawValue: d.string(forKey: "infoOverlay") ?? "") ?? .auto
         heatMode = HeatMode(rawValue: d.string(forKey: "heatMode") ?? "") ?? .hover
+        appearance = AppAppearance(rawValue: d.string(forKey: "appearance") ?? "") ?? .dark
         railAutoHide = b("railAutoHide", true)
         doubleClickScreenFull = b("doubleClickScreenFull", false)
     }

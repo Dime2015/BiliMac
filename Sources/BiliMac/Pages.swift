@@ -116,7 +116,7 @@ struct ListPage: View {
     let key: String
     var emptyText = L("这里还没有内容")
     var removeAction: ((VideoCard) -> Void)? = nil
-    var tint: Color = Color(hex: 0x2B3D4F)
+    var tint: Color = Theme.tint(hex: 0x2B3D4F, light: 0xDCE8F2)
 
     var body: some View {
         let list = app.list(for: key)
@@ -171,7 +171,8 @@ struct FavoritesPage: View {
     var body: some View {
         if let id = folderID, let folder = app.favFolders.first(where: { $0.id == id }) ?? app.favFolders.first {
             let list = app.list(for: "fav:\(folder.id)")
-            MainPanel(tint: Color(hex: 0x3D2A5C)) {
+            MainPanel(tint: Theme.tint(hex: 0x3D2A5C, light: 0xE6DDF3)) {
+
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         PageHeader(kicker: L("收藏夹"), title: folder.title, subtitle: Lf("共 %@ 个视频", "\(folder.count)"), list: list)

@@ -114,7 +114,11 @@ struct PlayerSurface<Overlay: View>: View {
     @StateObject private var ui = PlayerChrome()
 
     var body: some View {
-        if chrome == .full && settings.chromeLayout == .outside { outsideBody } else { overlayBody }
+        Group {
+            if chrome == .full && settings.chromeLayout == .outside { outsideBody } else { overlayBody }
+        }
+        // The player is always dark, whatever the app's appearance.
+        .environment(\.colorScheme, .dark)
     }
 
     // MARK: Outside layout — nothing covers the picture, so nothing needs to hide.
@@ -396,7 +400,7 @@ struct ControlsBar: View {
     var body: some View {
         VStack(spacing: 6) {
             Scrubber(time: clock.time, duration: clock.duration, buffered: clock.buffered, style: .player,
-                     heat: controller.heat, heatMode: settings.heatMode,
+                     heat: controller.heat, heatMode: settings.heatMode, pictureGap: solid ? 4 : 0,
                      preview: { controller.previewImage(at: $0) }, onHoverStart: { controller.loadShotsIfNeeded() }) { controller.seek(to: $0) }
             HStack(spacing: 6) {
                 ChromeIcon(icon: clock.playing ? "pause.fill" : "play.fill", help: clock.playing ? L("暂停 空格") : L("播放 空格")) {
@@ -433,7 +437,8 @@ struct ControlsBar: View {
         .padding(.horizontal, 14)
         .padding(.bottom, solid ? 8 : 10)
         .padding(.top, solid ? 4 : 28)
-        .background(solid ? Color.black : .clear)
+        // No background here even when solid: an opaque bar would turn the heat curve, which pokes
+        // up over the picture, black. The outside layout paints black behind the whole player.
         .contentShape(Rectangle())
     }
 }
@@ -535,6 +540,8 @@ struct Scrubber: View {
     /// Danmaku-density curve drawn above the track (0…1 per bin).
     var heat: [Double] = []
     var heatMode: HeatMode = .off
+    /// Gap between the top of the scrubber and the picture's bottom edge (outside layout's bar padding).
+    var pictureGap: CGFloat = 0
     /// Hover thumbnail for a time (YouTube-style storyboard); called when hovering starts too.
     var preview: ((Double) -> NSImage?)? = nil
     var onHoverStart: (() -> Void)? = nil
@@ -558,16 +565,20 @@ struct Scrubber: View {
             let active = hover != nil || dragX != nil
             let trackH: CGFloat = active ? (style == .player ? 6 : 5) : 4
             let base: Color = style == .bar ? Theme.line : .white.opacity(0.25)
-            let fill: Color = style == .bar ? (active ? Theme.pink : .white) : Theme.pink
+            let fill: Color = style == .bar ? (active ? Theme.pink : Theme.text) : Theme.pink
             let showHeat = style == .player && !heat.isEmpty && (heatMode == .always || (heatMode == .hover && active))
-            let heatBottom = midY - 5
+            // Hover: the curve stands on the picture's bottom edge, so no black strip shows between them.
+            // Always: it lives in the reserved black space above the track.
+            let heatBottom = reservesHeat ? midY - 5 : -pictureGap
             ZStack(alignment: .topLeading) {
                 if showHeat {
-                    // Opaque fills: translucent ones over the video layer get composited toward black.
-                    ZStack {
-                        HeatShape(values: heat).fill(Color(white: active ? 0.52 : 0.3))
-                        HeatShape(values: heat).fill(active ? Theme.pink : Color(hex: 0x8E3F58))
-                            .mask(alignment: .leading) { Rectangle().frame(width: w * played) }
+                    ZStack(alignment: .leading) {
+                        HeatShape(values: heat).fill(.white.opacity(active ? 0.18 : 0.16))
+                        // Clip rather than .mask: a mask over the video layer leaves the masked-out part black.
+                        HeatShape(values: heat).fill(Theme.pink.opacity(0.4))
+                            .frame(width: w, height: heatHeight)
+                            .frame(width: w * played, alignment: .leading)
+                            .clipped()
                     }
                     .frame(width: w, height: heatHeight)
                     .position(x: w / 2, y: heatBottom - heatHeight / 2)
@@ -575,11 +586,12 @@ struct Scrubber: View {
                     .transition(.opacity)
                 }
                 Capsule().fill(base).frame(width: w, height: trackH).position(x: w / 2, y: midY)
-                Capsule().fill(.white.opacity(style == .bar ? 0.25 : 0.4))
+                Capsule().fill(style == .bar ? Theme.text.opacity(0.25) : .white.opacity(0.4))
                     .frame(width: w * loaded, height: trackH).position(x: w * loaded / 2, y: midY)
                 Capsule().fill(fill).frame(width: w * played, height: trackH).position(x: w * played / 2, y: midY)
-                Circle().fill(.white).frame(width: 12, height: 12)
+                Circle().fill(style == .bar ? Theme.text : .white).frame(width: 12, height: 12)
                     .shadow(radius: 2)
+
                     .opacity(active ? 1 : 0)
                     .position(x: w * played, y: midY)
                 if style == .player, let x = dragX ?? hover, duration > 0 {
@@ -696,7 +708,9 @@ struct StatsPanel: View {
             .padding(14)
             .frame(width: 360, alignment: .leading)
             .background(Color(hex: 0x0A0A0A, alpha: 0.8), in: RoundedRectangle(cornerRadius: 10))
+            .environment(\.colorScheme, .dark)
         }
+
     }
 }
 

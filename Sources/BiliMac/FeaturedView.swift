@@ -80,8 +80,10 @@ struct FeaturedView: View {
             .clipShape(RoundedRectangle(cornerRadius: fullBleed ? 0 : 10, style: .continuous))
             .animation(.spring(response: 0.42, dampingFraction: 0.84), value: feed.current.map(ObjectIdentifier.init))
         }
+        .environment(\.colorScheme, .dark)   // 精选 is a player page: always dark
         .task { await feed.take() }
         .onAppear { newVideo() }
+
         .onChange(of: feed.current.map(ObjectIdentifier.init)) { newVideo() }
     }
 

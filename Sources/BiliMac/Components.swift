@@ -9,17 +9,63 @@ extension Color {
     }
 }
 
+extension NSColor {
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+        self.init(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                  blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
+    }
+}
+
+extension NSColor {
+    /// Primary text for AppKit views (the search field), following the appearance.
+    static let themeText = NSColor(name: nil) { a in
+        a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : NSColor(hex: 0x18191C)
+    }
+}
+
+extension Color {
+    /// A colour that follows the appearance it is drawn in (the app setting, or the forced-dark player).
+    static func dyn(_ dark: NSColor, _ light: NSColor) -> Color {
+        Color(nsColor: NSColor(name: nil) { a in a.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light })
+    }
+    static func dyn(_ dark: UInt32, _ light: UInt32, darkAlpha: CGFloat = 1, lightAlpha: CGFloat = 1) -> Color {
+        dyn(NSColor(hex: dark, alpha: darkAlpha), NSColor(hex: light, alpha: lightAlpha))
+    }
+}
+
+/// Dark: Spotify-style black and greys. Light: soft bilibili pinks with bilibili's text greys.
 extension Theme {
-    static let ground = Color.black
-    static let panel = Color(hex: 0x121212)
-    static let elevated = Color(hex: 0x1F1F1F)
-    static let raised = Color(hex: 0x242424)
-    static let chip = Color(hex: 0x2A2A2A)
-    static let line = Color(hex: 0x535353)
-    static let text2 = Color(hex: 0xB3B3B3)
-    static let text3 = Color(hex: 0x7A7A7A)
-    static let defaultTint = Color(hex: 0x5B2A43)
+    static let ground = Color.dyn(0x000000, 0xF3E3E9)
+    static let panel = Color.dyn(0x121212, 0xFFFAFB)
+    static let elevated = Color.dyn(0x1F1F1F, 0xFBEEF2)
+    static let raised = Color.dyn(0x242424, 0xF8E4EB)
+    static let chip = Color.dyn(0x2A2A2A, 0xF5E3EA)
+    static let line = Color.dyn(0x535353, 0xE7D0D9)
+    static let text = Color.dyn(0xFFFFFF, 0x18191C)
+    static let text2 = Color.dyn(0xB3B3B3, 0x61666D)
+    static let text3 = Color.dyn(0x7A7A7A, 0x9499A0)
+    /// Secondary line under a title (owner · plays).
+    static let meta = Color.dyn(0xA7A7A7, 0x7D828A)
+    static let menu = Color.dyn(0x282828, 0xFFFFFF)
+    static let menuHover = Color.dyn(0x3E3E3E, 0xFCE8EF)
+    static let rowHover = Color.dyn(0x1A1A1A, 0xFBEDF2)
+    /// Filled main buttons and selected chips: white on dark, pink on light; and what goes on them.
+    static let primary = Color.dyn(0xFFFFFF, 0xFB7299)
+    static let onPrimary = Color.dyn(0x000000, 0xFFFFFF)
+    /// Text and icons on a pink fill.
+    static let onPink = Color.dyn(0x000000, 0xFFFFFF)
+    /// Round buttons floating over imagery.
+    static let floatingButton = Color.dyn(0x000000, 0xFFFFFF, darkAlpha: 0.55, lightAlpha: 0.85)
+    static let shadow = Color.dyn(0x000000, 0x6B2A40, darkAlpha: 0.55, lightAlpha: 0.16)
+    static let defaultTint = Color.dyn(0x5B2A43, 0xF7D3E0)
     static let mono = Font.system(size: 11, weight: .medium, design: .monospaced)
+
+    /// Header tint from a cover's average colour: deep in dark mode, a pale wash in light mode.
+    static func tint(hue h: CGFloat, saturation s: CGFloat) -> Color {
+        Color.dyn(NSColor(hue: h, saturation: min(max(s * 1.25, 0.25), 0.62), brightness: 0.36, alpha: 1),
+            NSColor(hue: h, saturation: min(max(s * 0.55, 0.12), 0.28), brightness: 0.97, alpha: 1))
+    }
+    static func tint(hex dark: UInt32, light: UInt32) -> Color { Color.dyn(dark, light) }
 }
 
 // MARK: - Cover colour (Spotify-style header tint)
@@ -43,7 +89,7 @@ final class TintCache {
         let ns = NSColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255, blue: CGFloat(px[2]) / 255, alpha: 1)
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0
         ns.usingColorSpace(.sRGB)?.getHue(&h, saturation: &s, brightness: &b, alpha: nil)
-        let c = Color(hue: h, saturation: min(max(s * 1.25, 0.25), 0.62), brightness: 0.36)
+        let c = Theme.tint(hue: h, saturation: s)
         cache[url] = c
         return c
     }
@@ -79,9 +125,9 @@ struct CircleIconButton: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: size * 0.42, weight: .bold))
-                .foregroundStyle(enabled ? .white : Theme.text3)
+                .foregroundStyle(enabled ? Theme.text : Theme.text3)
                 .frame(width: size, height: size)
-                .background(Color.black.opacity(hover && enabled ? 0.75 : 0.55), in: Circle())
+                .background(Theme.floatingButton.opacity(hover && enabled ? 1 : 0.85), in: Circle())
         }
         .buttonStyle(.pressable)
         .disabled(!enabled)
@@ -102,9 +148,9 @@ struct ChipButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: selected ? .semibold : .regular))
-                .foregroundStyle(selected ? .black : .white)
+                .foregroundStyle(selected ? Theme.onPrimary : Theme.text)
                 .padding(.horizontal, 13).padding(.vertical, 6)
-                .background(selected ? (style == .pink ? Theme.pink : .white) : Color.white.opacity(hover ? 0.16 : 0.1), in: Capsule())
+                .background(selected ? (style == .pink ? Theme.pink : Theme.primary) : Theme.text.opacity(hover ? 0.12 : 0.07), in: Capsule())
         }
         .buttonStyle(.pressable)
         .onHover { hover = $0 }
@@ -124,11 +170,11 @@ struct PillButton: View {
                 if let icon { Image(systemName: icon).font(.system(size: 14, weight: .semibold)) }
                 Text(title).font(.system(size: 13.5, weight: filled ? .bold : .medium)).monospacedDigit()
             }
-            .foregroundStyle(filled ? .black : .white)
+            .foregroundStyle(filled ? Theme.onPrimary : Theme.text)
             .padding(.horizontal, 18)
             .frame(height: 40)
-            .background(filled ? tint.opacity(hover ? 0.9 : 1) : Color.white.opacity(hover ? 0.06 : 0), in: Capsule())
-            .overlay(Capsule().strokeBorder(filled ? .clear : (hover ? .white : Theme.line), lineWidth: 1))
+            .background(filled ? tint.opacity(hover ? 0.9 : 1) : Theme.text.opacity(hover ? 0.06 : 0), in: Capsule())
+            .overlay(Capsule().strokeBorder(filled ? .clear : (hover ? Theme.text : Theme.line), lineWidth: 1))
             .scaleEffect(hover ? 1.03 : 1)
         }
         .buttonStyle(.pressable)
@@ -144,7 +190,7 @@ struct PinkToggleStyle: ToggleStyle {
                 configuration.label.frame(maxWidth: .infinity, alignment: .leading)
                 ZStack(alignment: configuration.isOn ? .trailing : .leading) {
                     Capsule().fill(configuration.isOn ? Theme.pink : Theme.line).frame(width: 40, height: 22)
-                    Circle().fill(configuration.isOn ? Color.black : Theme.panel).frame(width: 16, height: 16).padding(3)
+                    Circle().fill(configuration.isOn ? Theme.onPrimary : Theme.panel).frame(width: 16, height: 16).padding(3)
                 }
                 .animation(.easeOut(duration: 0.15), value: configuration.isOn)
             }
@@ -161,7 +207,7 @@ struct DropdownLabel: View {
             Text(text).font(.system(size: 13.5))
             Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Theme.text)
         .padding(.horizontal, 12)
         .frame(height: 34)
         .background(Theme.chip, in: RoundedRectangle(cornerRadius: 6))
@@ -222,17 +268,17 @@ struct ShelfCard: View {
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: "play.fill")
                         .font(.system(size: 17))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(Theme.onPrimary)
                         .frame(width: 44, height: 44)
                         .background(Theme.pink, in: Circle())
-                        .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
+                        .shadow(color: Theme.shadow, radius: 8, y: 4)
                         .padding(.trailing, 8).padding(.bottom, 26)
                         .scaleEffect(hover ? 1 : 0.55)
                         .opacity(hover ? 1 : 0)
                         .offset(y: hover ? 0 : 6)
                 }
                 // Shadow only while lifted: always-on shadows on every cover make page switches and scrolling heavy.
-                .shadow(color: .black.opacity(hover ? 0.55 : 0), radius: hover ? 16 : 0, y: hover ? 10 : 0)
+                .shadow(color: Theme.shadow.opacity(hover ? 1 : 0), radius: hover ? 16 : 0, y: hover ? 10 : 0)
                 .offset(y: hover ? -3 : 0)
             Text(card.title)
                 .font(.system(size: 14, weight: .bold))
@@ -240,10 +286,10 @@ struct ShelfCard: View {
                 .lineSpacing(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.text)
             Text(meta ?? defaultMeta)
                 .font(.system(size: 12.5))
-                .foregroundStyle(Color(hex: 0xA7A7A7))
+                .foregroundStyle(Theme.meta)
                 .lineLimit(1)
         }
         .padding(10)
@@ -276,12 +322,12 @@ struct QuickTile: View {
                 Text(remaining).font(.system(size: 12)).foregroundStyle(Theme.text2)
             }
             Spacer(minLength: 0)
-            Image(systemName: "play.fill").font(.system(size: 13)).foregroundStyle(.black)
+            Image(systemName: "play.fill").font(.system(size: 13)).foregroundStyle(Theme.onPrimary)
                 .frame(width: 32, height: 32).background(Theme.pink, in: Circle()).padding(.trailing, 10)
                 .scaleEffect(hover ? 1 : 0.5).opacity(hover ? 1 : 0)
         }
         .frame(height: 64)
-        .background(Color.white.opacity(hover ? 0.16 : 0.08))
+        .background(Theme.text.opacity(hover ? 0.12 : 0.06))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Motion.pop) { hover = h } }
@@ -318,13 +364,13 @@ struct LibraryRow: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 5))
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 13.5)).lineLimit(1).foregroundStyle(selected ? Theme.pink : .white)
-                Text(meta).font(.system(size: 12)).lineLimit(1).foregroundStyle(Color(hex: 0xA7A7A7))
+                Text(title).font(.system(size: 13.5)).lineLimit(1).foregroundStyle(selected ? Theme.pink : Theme.text)
+                Text(meta).font(.system(size: 12)).lineLimit(1).foregroundStyle(Theme.meta)
             }
             Spacer(minLength: 0)
         }
         .padding(6)
-        .background(selected ? Theme.raised : (hover ? Color(hex: 0x1A1A1A) : .clear), in: RoundedRectangle(cornerRadius: 6))
+        .background(selected ? Theme.raised : (hover ? Theme.rowHover : .clear), in: RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
     }
@@ -396,7 +442,7 @@ private struct FolderRow: View {
                 Text("\(folder.count)").font(.system(size: 12)).foregroundStyle(Theme.text3)
             }
             .padding(.horizontal, 10).frame(height: 36)
-            .background(hover ? Color(hex: 0x3E3E3E) : .clear, in: RoundedRectangle(cornerRadius: 5))
+            .background(hover ? Theme.menuHover : .clear, in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
@@ -439,8 +485,9 @@ struct ThinSlider: View {
         GeometryReader { g in
             ZStack(alignment: .leading) {
                 Capsule().fill(Theme.line)
-                Capsule().fill(hover ? Theme.pink : .white).frame(width: g.size.width * value)
-                Circle().fill(.white).frame(width: 12, height: 12).offset(x: g.size.width * value - 6).opacity(hover ? 1 : 0)
+                Capsule().fill(hover ? Theme.pink : Theme.text).frame(width: g.size.width * value)
+                Circle().fill(Theme.text).frame(width: 12, height: 12).offset(x: g.size.width * value - 6).opacity(hover ? 1 : 0)
+
             }
             .frame(height: 4)
             .frame(maxHeight: .infinity)

@@ -23,6 +23,7 @@ struct RootView: View {
                           headerLeadingInset: app.playerMode == .appFull ? 64 : 0)
                 .matchedGeometryEffect(id: "player", in: playerNS)
                 .background(.black)
+                .environment(\.colorScheme, .dark)
         }
     }
 
@@ -80,18 +81,17 @@ struct RootView: View {
             app.windowExitedFullScreen()
         }
         .frame(minWidth: 1040, minHeight: 640)
-        .preferredColorScheme(.dark)
-        .foregroundStyle(.white)
+        .foregroundStyle(Theme.text)
     }
 
     @ViewBuilder private var toast: some View {
         if let t = app.toast {
             Text(t)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.black)
+                .foregroundStyle(Theme.panel)
                 .padding(.horizontal, 16).padding(.vertical, 9)
-                .background(.white, in: Capsule())
-                .shadow(color: .black.opacity(0.4), radius: 12, y: 4)
+                .background(Theme.text, in: Capsule())
+                .shadow(color: Theme.shadow, radius: 12, y: 4)
                 .padding(.top, 18)
                 .transition(.move(edge: .top).combined(with: .scale(scale: 0.8)).combined(with: .opacity))
         }
@@ -211,7 +211,7 @@ struct AccountButton: View {
             Button { withAnimation(Motion.pop) { open.toggle() } } label: {
                 Avatar(url: app.account.face, size: 30)
                     .padding(3)
-                    .background(.black.opacity(0.55), in: Circle())
+                    .background(Theme.floatingButton, in: Circle())
                     .contentShape(Circle())
             }
             .buttonStyle(.pressable)
@@ -221,7 +221,7 @@ struct AccountButton: View {
             HStack(spacing: 10) {
                 Button(L("设置")) { app.go(.settings) }.buttonStyle(.pressable).foregroundStyle(Theme.text2)
                     .font(.system(size: 13.5, weight: .semibold))
-                PillButton(title: L("登录"), filled: true, tint: .white) { app.showLogin = true }
+                PillButton(title: L("登录"), filled: true, tint: Theme.primary) { app.showLogin = true }
             }
         }
     }
@@ -232,7 +232,7 @@ struct AccountButton: View {
                 Avatar(url: app.account.face, size: 44)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(app.account.name ?? "").font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(app.account.isVip ? Theme.pink : .white).lineLimit(1)
+                        .foregroundStyle(app.account.isVip ? Theme.pink : Theme.text).lineLimit(1)
                     HStack(spacing: 6) {
                         Text("LV\(app.account.level)").font(.system(size: 10, weight: .heavy))
                             .padding(.horizontal, 5).padding(.vertical, 1)
@@ -242,7 +242,7 @@ struct AccountButton: View {
                             Text(v).font(.system(size: 10, weight: .heavy))
                                 .padding(.horizontal, 5).padding(.vertical, 1)
                                 .background(Theme.pink, in: RoundedRectangle(cornerRadius: 3))
-                                .foregroundStyle(.black)
+                                .foregroundStyle(Theme.onPrimary)
                         }
                         Text(Lf("硬币 %@", "\(Int(app.account.coins))")).font(.system(size: 12)).foregroundStyle(Theme.text2)
                     }
@@ -304,7 +304,7 @@ struct LogoMark: View {
         } else {
             Image(systemName: "play.fill")
                 .font(.system(size: size * 0.42))
-                .foregroundStyle(.black)
+                .foregroundStyle(Theme.onPrimary)
                 .frame(width: size, height: size)
                 .background(Theme.pink, in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
         }
@@ -325,7 +325,7 @@ private struct NavRow: View {
                 Text(title).font(.system(size: 15, weight: .bold))
                 Spacer()
             }
-            .foregroundStyle(selected || hover ? .white : Theme.text2)
+            .foregroundStyle(selected || hover ? Theme.text : Theme.text2)
             .padding(.horizontal, 12)
             .frame(height: 42)
             .background {
@@ -365,7 +365,7 @@ private struct LibraryPanel: View {
                     Text(L("登录后查看历史记录、稍后再看和收藏夹")).font(.system(size: 14, weight: .bold))
                     Text(L("用哔哩哔哩手机客户端扫码，个性化推荐和 1080P 以上画质也会一起解锁。"))
                         .font(.system(size: 12.5)).foregroundStyle(Theme.text2)
-                    PillButton(title: L("扫码登录"), filled: true, tint: .white) { app.showLogin = true }
+                    PillButton(title: L("扫码登录"), filled: true, tint: Theme.primary) { app.showLogin = true }
                 }
                 .padding(16)
                 .background(Theme.raised, in: RoundedRectangle(cornerRadius: 8))
@@ -443,7 +443,7 @@ private struct AutoHideRail: View {
             if shown {
                 IconRail()
                     .padding(.leading, 8).padding(.top, 8).padding(.bottom, bottomInset)
-                    .shadow(color: .black.opacity(0.6), radius: 18, x: 6)
+                    .shadow(color: Theme.shadow, radius: 18, x: 6)
                     .onHover { inside in inside ? show() : scheduleHide() }
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
@@ -501,7 +501,7 @@ private struct RailIcon: View {
         Button(action: action) {
             Image(systemName: selected ? filledSymbol(icon) : icon)
                 .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(selected ? Theme.pink : (hover ? .white : Theme.text2))
+                .foregroundStyle(selected ? Theme.pink : (hover ? Theme.text : Theme.text2))
                 .frame(width: 48, height: 48)
                 .background {
                     if selected { RoundedRectangle(cornerRadius: 8).fill(Theme.raised).matchedGeometryEffect(id: "rail", in: ns) }
@@ -542,6 +542,7 @@ struct NowPlayingBar: View {
                     .overlay(alignment: .topTrailing) {
                         Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 10, weight: .bold))
                             .padding(5).background(.black.opacity(0.55), in: Circle()).padding(5)
+                            .foregroundStyle(.white)
                     }
             }
             .buttonStyle(.pressable)
@@ -581,7 +582,7 @@ struct NowPlayingBar: View {
                     .foregroundStyle(Theme.text2).help(L("下一个"))
                 Button { settings.danmakuOn.toggle() } label: {
                     Image(systemName: settings.danmakuOn ? "text.bubble.fill" : "text.bubble").font(.system(size: 15))
-                        .foregroundStyle(settings.danmakuOn ? .white : Theme.text2)
+                        .foregroundStyle(settings.danmakuOn ? Theme.text : Theme.text2)
                 }
                 .help(L("弹幕"))
             }
@@ -607,7 +608,7 @@ struct NowPlayingBar: View {
             .help(L("统计信息"))
             .floatingPanel(id: "bar-stats", isPresented: $showStats, placement: .above(.trailing)) {
                 StatsPanel(controller: player, closable: false)
-                    .shadow(color: .black.opacity(0.55), radius: 24, y: 12)
+                    .shadow(color: Theme.shadow, radius: 24, y: 12)
             }
             VolumeBar(player: player)
             Button { app.expandNowPlaying() } label: {
@@ -629,9 +630,9 @@ struct PlayPauseButton: View {
             Image(systemName: clock.playing ? "pause.fill" : "play.fill")
                 .contentTransition(.symbolEffect(.replace))
                 .font(.system(size: size * 0.42))
-                .foregroundStyle(.black)
+                .foregroundStyle(Theme.panel)
                 .frame(width: size, height: size)
-                .background(.white, in: Circle())
+                .background(Theme.text, in: Circle())
                 .scaleEffect(hover ? 1.06 : 1)
         }
         .buttonStyle(.pressable)
@@ -650,7 +651,7 @@ struct BarProgress: View {
             Text(formatTime(clock.duration)).frame(width: 52, alignment: .leading)
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
-        .foregroundStyle(Color(hex: 0xA7A7A7))
+        .foregroundStyle(Theme.meta)
     }
 }
 
@@ -713,7 +714,8 @@ struct LoginView: View {
             Text(L("打开哔哩哔哩手机客户端，在「我的」右上角扫一扫")).font(.system(size: 12.5)).foregroundStyle(Theme.text2)
             HStack(spacing: 10) {
                 PillButton(title: L("取消")) { task?.cancel(); done(false) }
-                PillButton(title: L("刷新二维码"), filled: true, tint: .white) { start() }
+                PillButton(title: L("刷新二维码"), filled: true, tint: Theme.primary) { start() }
+
             }
         }
         .padding(32)

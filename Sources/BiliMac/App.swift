@@ -54,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         do { try HLSProxy.shared.start() } catch { log("proxy start failed: \(error)") }
         NSApp.setActivationPolicy(.regular)
+        MainActor.assumeIsolated { AppSettings.shared.appearance.apply() }
         NSApp.activate(ignoringOtherApps: true)
         MainActor.assumeIsolated { InputRouter.shared.install() }
         if let size = Env.windowSize {

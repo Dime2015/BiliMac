@@ -9,7 +9,7 @@ final class DetailModel: ObservableObject {
     @Published var detail: VideoDetail?
     @Published var error: String?
     @Published var page: VideoPage?
-    @Published var tint = Color(hex: 0x1F3B5C)
+    @Published var tint = Theme.tint(hex: 0x1F3B5C, light: 0xDDE6F0)
     @Published var comments: [Comment] = []
     @Published var commentMode = 3 { didSet { if oldValue != commentMode { Task { await reloadComments() } } } }
     @Published var commentTotal = 0
@@ -126,7 +126,7 @@ struct VideoScreen: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                                 // One shadow for the whole player, not one per layer (the heat curve would cast its own).
                                 .compositingGroup()
-                                .shadow(color: .black.opacity(0.5), radius: 24, y: 16)
+                                .shadow(color: Theme.shadow, radius: 24, y: 16)
                             if let e = model.error {
                                 Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(Theme.text2)
                             }
@@ -218,12 +218,12 @@ private struct VideoInfo: View {
                     Text(d.desc)
                         .font(.system(size: 14))
                         .lineSpacing(5)
-                        .foregroundStyle(Color(hex: 0xD0D0D0))
+                        .foregroundStyle(Color.dyn(0xD0D0D0, 0x3B3F45))
                         .lineLimit(expanded ? nil : 3)
                         .textSelection(.enabled)
                     if d.desc.count > 90 || d.desc.filter({ $0 == "\n" }).count > 2 {
                         Button(expanded ? L("收起") : L("展开")) { expanded.toggle() }
-                            .buttonStyle(.pressable).font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                            .buttonStyle(.pressable).font(.system(size: 13, weight: .bold)).foregroundStyle(Theme.text)
                     }
                 }
                 .frame(maxWidth: 820, alignment: .leading)
@@ -251,7 +251,7 @@ private struct PillLabel: View {
             Image(systemName: icon).font(.system(size: 14, weight: .semibold))
             Text(title).font(.system(size: 13.5, weight: .medium)).monospacedDigit()
         }
-        .foregroundStyle(active ? Theme.pink : .white)
+        .foregroundStyle(active ? Theme.pink : Theme.text)
         .padding(.horizontal, 18)
         .frame(height: 40)
         .overlay(Capsule().strokeBorder(active ? Theme.pink : Theme.line))
@@ -267,7 +267,7 @@ private struct RoundOutlineButton: View {
         Button(action: action) {
             Image(systemName: icon).font(.system(size: 15, weight: .semibold))
                 .frame(width: 40, height: 40)
-                .overlay(Circle().strokeBorder(hover ? .white : Theme.line))
+                .overlay(Circle().strokeBorder(hover ? Theme.text : Theme.line))
         }
         .buttonStyle(.pressable)
         .onHover { hover = $0 }
@@ -295,9 +295,9 @@ private struct SidePanel: View {
                             Button { actions.toggleFollow() } label: {
                                 Text(d.following ? L("已关注") : L("+ 关注"))
                                     .font(.system(size: 13, weight: .bold))
-                                    .foregroundStyle(d.following ? .white : .black)
+                                    .foregroundStyle(d.following ? Theme.text : Theme.onPrimary)
                                     .padding(.horizontal, 16).frame(height: 32)
-                                    .background(d.following ? Theme.chip : .white, in: Capsule())
+                                    .background(d.following ? Theme.chip : Theme.primary, in: Capsule())
                             }
                             .buttonStyle(.pressable)
                         }
@@ -334,7 +334,7 @@ private struct SidePanel: View {
                                     Text(formatDuration(p.duration)).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.text3)
                                 }
                                 .font(.system(size: 13))
-                                .foregroundStyle(p == model.page ? Theme.pink : .white)
+                                .foregroundStyle(p == model.page ? Theme.pink : Theme.text)
                                 .padding(.horizontal, 10).frame(height: 36)
                                 .background(p == model.page ? Theme.raised : .clear, in: RoundedRectangle(cornerRadius: 6))
                                 .contentShape(Rectangle())
@@ -381,7 +381,7 @@ private struct RelatedRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(card.title).font(.system(size: 13)).lineLimit(2).lineSpacing(1)
                 Spacer(minLength: 0)
-                Text(Lf("%@ · %@ 播放", "\(card.owner)", "\(formatCount(card.views))")).font(.system(size: 11.5)).foregroundStyle(Color(hex: 0xA7A7A7))
+                Text(Lf("%@ · %@ 播放", "\(card.owner)", "\(formatCount(card.views))")).font(.system(size: 11.5)).foregroundStyle(Theme.meta)
                     .lineLimit(1)
             }
             .frame(height: 68, alignment: .topLeading)
@@ -442,7 +442,7 @@ private struct CommentRow: View {
                             .foregroundStyle(c.level >= 5 ? Color(hex: 0xF0A24A) : Theme.text3)
                     }
                     if c.isUp {
-                        Text("UP").font(.system(size: 9.5, weight: .heavy)).foregroundStyle(.black)
+                        Text("UP").font(.system(size: 9.5, weight: .heavy)).foregroundStyle(Theme.onPrimary)
                             .padding(.horizontal, 4).background(Theme.pink, in: RoundedRectangle(cornerRadius: 3))
                     }
                 }
@@ -463,7 +463,8 @@ private struct CommentRow: View {
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Theme.text.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+
                 }
             }
         }

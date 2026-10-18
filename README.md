@@ -46,6 +46,8 @@ BiliMac is written from scratch in SwiftUI — not a web wrapper. Playback goes 
 - Codec preference: Auto (hardware first) / HEVC / AVC / AV1
 - **Video route**: outside mainland China, bilibili hands out overseas CDN nodes, and uncached segments there often crawl at under 1 Mbps. BiliMac can rewrite video requests to the mainland nodes `08c` / `hwb` / `hw`, or leave them alone. A built-in speed test compares the nodes. Background and measurements are in the sister project [B站加速 (bilibili macOS overseas accelerator)](https://github.com/Dime2015/bilibili-macos-overseas-accelerator)
 
+**Appearance**: dark, a light theme built on bilibili pink, or follow the system (Settings → General → Appearance). The player always stays dark.
+
 **Languages**: the UI is available in Simplified Chinese, English and Japanese. It follows the system by default; you can override it in Settings → General → Language.
 
 ## Install
