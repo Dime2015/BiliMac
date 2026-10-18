@@ -19,6 +19,30 @@ struct Danmaku {
         return p.items.sorted { $0.time < $1.time }
     }
 
+    /// Danmaku density across the video, smoothed and scaled to 0…1. Stands in for bilibili's
+    /// 高能进度条, whose endpoint (pbp/data) now returns 404 — it was danmaku density too.
+    static func heat(_ list: [Danmaku], duration: Double) -> [Double] {
+        guard duration > 30, list.count >= 40 else { return [] }
+        let bins = min(max(Int(duration / 5), 60), 150)
+        var counts = [Double](repeating: 0, count: bins)
+        for d in list where d.time >= 0 && d.time < duration {
+            counts[min(Int(d.time / duration * Double(bins)), bins - 1)] += 1
+        }
+        let kernel = [0.05, 0.12, 0.2, 0.26, 0.2, 0.12, 0.05]
+        let smooth = counts.indices.map { i in
+            kernel.indices.reduce(0.0) { acc, j in
+                let x = i + j - kernel.count / 2
+                return acc + (counts.indices.contains(x) ? counts[x] * kernel[j] : 0)
+            }
+        }
+        // Scale between the quietest stretch and the 97th percentile so one spike doesn't flatten the rest.
+        // The opening seconds (前排 / 打卡 danmaku) are left out of the scale; they just clamp to the top.
+        let sorted = smooth.dropFirst(3).sorted()
+        let low = sorted[sorted.count / 20], high = sorted[Int(Double(sorted.count - 1) * 0.97)]
+        guard high - low > 0.01 else { return [] }
+        return smooth.map { min(max(($0 - low) / (high - low), 0), 1) }
+    }
+
     private static func inflateRaw(_ d: Data) -> Data? {
         let cap = max(d.count * 12, 1 << 20)
         var out = Data(count: cap)

@@ -384,6 +384,7 @@ struct ControlsBar: View {
     var body: some View {
         VStack(spacing: 6) {
             Scrubber(time: clock.time, duration: clock.duration, buffered: clock.buffered, style: .player,
+                     heat: controller.heat, heatMode: settings.heatMode,
                      preview: { controller.previewImage(at: $0) }, onHoverStart: { controller.loadShotsIfNeeded() }) { controller.seek(to: $0) }
             HStack(spacing: 6) {
                 ChromeIcon(icon: clock.playing ? "pause.fill" : "play.fill", help: clock.playing ? L("暂停 空格") : L("播放 空格")) {
@@ -519,6 +520,9 @@ struct Scrubber: View {
     let duration: Double
     let buffered: Double
     var style: Style = .player
+    /// Danmaku-density curve drawn above the track (0…1 per bin).
+    var heat: [Double] = []
+    var heatMode: HeatMode = .off
     /// Hover thumbnail for a time (YouTube-style storyboard); called when hovering starts too.
     var preview: ((Double) -> NSImage?)? = nil
     var onHoverStart: (() -> Void)? = nil
@@ -526,25 +530,49 @@ struct Scrubber: View {
     @State private var hoverX: CGFloat?
     @State private var dragX: CGFloat?
 
+    private let hitHeight: CGFloat = 14
+    private let heatHeight: CGFloat = 22
+    /// "Always" keeps room for the curve so it never covers the picture.
+    private var reservesHeat: Bool { style == .player && heatMode == .always }
+
     var body: some View {
         GeometryReader { g in
             let w = max(g.size.width, 1)
+            let midY = g.size.height - hitHeight / 2
             let frac = { (t: Double) in duration > 0 ? CGFloat(min(max(t / duration, 0), 1)) : 0 }
             let played = dragX.map { min(max($0 / w, 0), 1) } ?? frac(time)
-            let active = hoverX != nil || dragX != nil
+            let loaded = frac(buffered)
+            let hover = hoverX ?? (style == .player ? Env.scrubHover.map { w * $0 } : nil)
+            let active = hover != nil || dragX != nil
+            let trackH: CGFloat = active ? (style == .player ? 6 : 5) : 4
             let base: Color = style == .bar ? Theme.line : .white.opacity(0.25)
             let fill: Color = style == .bar ? (active ? Theme.pink : .white) : Theme.pink
-            ZStack(alignment: .leading) {
-                Capsule().fill(base)
-                Capsule().fill(.white.opacity(style == .bar ? 0.25 : 0.4)).frame(width: w * frac(buffered))
-                Capsule().fill(fill).frame(width: w * played)
+            let showHeat = style == .player && !heat.isEmpty && (heatMode == .always || (heatMode == .hover && active))
+            let heatBottom = midY - 5
+            ZStack(alignment: .topLeading) {
+                if showHeat {
+                    ZStack {
+                        HeatShape(values: heat).fill(.white.opacity(active ? 0.34 : 0.2))
+                        HeatShape(values: heat).fill(Theme.pink.opacity(active ? 0.55 : 0.4))
+                            .mask(alignment: .leading) { Rectangle().frame(width: w * played) }
+                    }
+                    .frame(width: w, height: heatHeight)
+                    .position(x: w / 2, y: heatBottom - heatHeight / 2)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+                }
+                Capsule().fill(base).frame(width: w, height: trackH).position(x: w / 2, y: midY)
+                Capsule().fill(.white.opacity(style == .bar ? 0.25 : 0.4))
+                    .frame(width: w * loaded, height: trackH).position(x: w * loaded / 2, y: midY)
+                Capsule().fill(fill).frame(width: w * played, height: trackH).position(x: w * played / 2, y: midY)
                 Circle().fill(.white).frame(width: 12, height: 12)
-                    .offset(x: w * played - 6)
-                    .opacity(active ? 1 : 0)
                     .shadow(radius: 2)
-                if style == .player, let x = hoverX ?? dragX, duration > 0 {
+                    .opacity(active ? 1 : 0)
+                    .position(x: w * played, y: midY)
+                if style == .player, let x = dragX ?? hover, duration > 0 {
                     let t = Double(min(max(x / w, 0), 1)) * duration
                     let thumb = preview?(t)
+                    let width: CGFloat = thumb == nil ? 60 : 176
                     VStack(spacing: 4) {
                         if let thumb {
                             Image(nsImage: thumb).resizable().aspectRatio(16 / 9, contentMode: .fill)
@@ -559,14 +587,14 @@ struct Scrubber: View {
                             .background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 4))
                     }
                     .fixedSize()
-                    .frame(width: thumb == nil ? 60 : 176)
-                    .offset(x: min(max(x - (thumb == nil ? 30 : 88), 0), w - (thumb == nil ? 60 : 176)),
-                            y: thumb == nil ? -22 : -72)
+                    // Zero-height frame anchored at the bottom: the preview grows upward and never affects layout.
+                    .frame(width: width, height: 0, alignment: .bottom)
+                    .position(x: min(max(x, width / 2), w - width / 2),
+                              y: (showHeat ? heatBottom - heatHeight : midY - trackH / 2) - 8)
                     .allowsHitTesting(false)
                 }
             }
-            .frame(height: active ? (style == .player ? 6 : 5) : 4)
-            .frame(maxHeight: .infinity)
+            .frame(width: w, height: g.size.height)
             .contentShape(Rectangle())
             .onContinuousHover { p in
                 if case .active(let pt) = p {
@@ -580,9 +608,37 @@ struct Scrubber: View {
                     onSeek(Double(min(max(v.location.x / w, 0), 1)) * duration)
                     dragX = nil
                 })
-            .animation(.easeOut(duration: 0.12), value: active)
+            .onAppear {
+                if style == .player, Env.scrubHover != nil { onHoverStart?() }
+            }
+            .animation(.easeOut(duration: 0.15), value: active)
         }
-        .frame(height: 14)
+        .frame(height: hitHeight + (reservesHeat ? heatHeight + 4 : 0))
+    }
+}
+
+/// Smooth area chart of `values` (0…1), filled down to the bottom edge.
+struct HeatShape: Shape {
+    let values: [Double]
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        guard values.count > 1 else { return p }
+        let n = CGFloat(values.count)
+        let pts = values.enumerated().map { i, v in
+            CGPoint(x: r.minX + (CGFloat(i) + 0.5) / n * r.width, y: r.maxY - (1.5 + CGFloat(v) * (r.height - 1.5)))
+        }
+        p.move(to: CGPoint(x: r.minX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: pts[0].y))
+        p.addLine(to: pts[0])
+        for i in 1..<pts.count {
+            let mid = CGPoint(x: (pts[i - 1].x + pts[i].x) / 2, y: (pts[i - 1].y + pts[i].y) / 2)
+            p.addQuadCurve(to: mid, control: pts[i - 1])
+        }
+        p.addLine(to: pts[pts.count - 1])
+        p.addLine(to: CGPoint(x: r.maxX, y: pts[pts.count - 1].y))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        p.closeSubpath()
+        return p
     }
 }
 

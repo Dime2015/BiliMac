@@ -30,6 +30,8 @@ final class PlayerController: ObservableObject {
     @Published private(set) var video: DashTrack?
     @Published private(set) var audio: DashTrack?
     @Published private(set) var danmaku: [Danmaku] = []
+    /// Danmaku-density curve for the progress bar (0…1 per bin); empty when there's too little danmaku.
+    @Published private(set) var heat: [Double] = []
     @Published var rate: Float = 1 {
         didSet {
             player.defaultRate = rate
@@ -140,6 +142,7 @@ final class PlayerController: ObservableObject {
         video = nil
         audio = nil
         danmaku = []
+        heat = []
         history = []
         realPlayed = 0
         sentFirstBeat = false
@@ -173,7 +176,11 @@ final class PlayerController: ObservableObject {
                 log("\(bvid) load error: \(error)")
             }
             let list = await dm
-            if !Task.isCancelled { self.danmaku = list }
+            if !Task.isCancelled {
+                self.danmaku = list
+                let duration = self.info?.duration ?? 0
+                self.heat = Danmaku.heat(list, duration: duration > 0 ? duration : self.clock.duration)
+            }
         }
     }
 

@@ -259,6 +259,9 @@ private struct InfoSection: View {
             .font(.system(size: 11, weight: .medium, design: .monospaced))
             .padding(.vertical, 12)
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.raised).frame(height: 1) }
+            Row(title: L("进度条热度"), subtitle: L("按弹幕密度画出视频里最热闹的片段（B 站官方的高能进度条接口已下线）")) {
+                SlidingChips(options: HeatMode.allCases.map { ($0, $0.label) }, selection: $s.heatMode)
+            }
             Row(title: L("双击画面"), subtitle: L("应用内全屏铺满 App 窗口（T）；屏幕全屏进入系统全屏（F）。Esc 逐级退出")) {
                 SlidingChips(options: [(false, L("应用内全屏")), (true, L("屏幕全屏"))], selection: $s.doubleClickScreenFull)
             }

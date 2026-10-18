@@ -52,6 +52,19 @@ enum InfoOverlayMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Danmaku-density heat curve above the progress bar (YouTube "most replayed" style).
+enum HeatMode: String, CaseIterable, Identifiable {
+    case hover, always, off
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .hover: return L("悬停时显示")
+        case .always: return L("一直显示")
+        case .off: return L("不显示")
+        }
+    }
+}
+
 /// Global quality strategy: an ordered list; each video plays the first entry it actually has.
 enum QualityPreset: String, CaseIterable, Identifiable {
     case max, hd, saver
@@ -113,6 +126,7 @@ final class AppSettings: ObservableObject {
     /// outside: bars above/below the picture, always visible. overlay: on the picture, auto-hiding.
     @Published var chromeLayout: ChromeLayout { didSet { d.set(chromeLayout.rawValue, forKey: "chromeLayout") } }
     @Published var infoOverlay: InfoOverlayMode { didSet { d.set(infoOverlay.rawValue, forKey: "infoOverlay") } }
+    @Published var heatMode: HeatMode { didSet { d.set(heatMode.rawValue, forKey: "heatMode") } }
     /// 精选 / video page: icon rail slides in from the left edge instead of staying put.
     @Published var railAutoHide: Bool { didSet { d.set(railAutoHide, forKey: "railAutoHide") } }
     /// Double-click on the video: false = 应用内全屏, true = 屏幕全屏.
@@ -147,6 +161,7 @@ final class AppSettings: ObservableObject {
         showFeaturedInfo = b("showFeaturedInfo", true)
         chromeLayout = ChromeLayout(rawValue: d.string(forKey: "chromeLayout") ?? "") ?? .outside
         infoOverlay = InfoOverlayMode(rawValue: d.string(forKey: "infoOverlay") ?? "") ?? .auto
+        heatMode = HeatMode(rawValue: d.string(forKey: "heatMode") ?? "") ?? .hover
         railAutoHide = b("railAutoHide", true)
         doubleClickScreenFull = b("doubleClickScreenFull", false)
     }

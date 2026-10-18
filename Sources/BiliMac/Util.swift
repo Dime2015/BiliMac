@@ -14,6 +14,8 @@ enum Env {
     static let route = e["BILIMAC_ROUTE"]
     /// Keep player chrome visible.
     static let pinChrome = e["BILIMAC_PIN_CHROME"] != nil
+    /// Pretend the pointer hovers the progress bar at this fraction (screenshots / checks), e.g. 0.4.
+    static let scrubHover = e["BILIMAC_SCRUB_HOVER"].flatMap(Double.init)
     /// Window content size, e.g. 1440x900.
     static let windowSize: CGSize? = e["BILIMAC_WINDOW"].flatMap { s in
         let p = s.split(separator: "x").compactMap { Double($0) }

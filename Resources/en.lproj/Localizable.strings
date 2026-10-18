@@ -231,6 +231,7 @@
 "一直显示" = "Always";
 "自动隐藏" = "Auto-hide";
 "不显示" = "Never";
+"悬停时显示" = "On hover";
 "极致" = "Maximum";
 "高清" = "HD";
 "省流" = "Data Saver";
@@ -267,6 +268,8 @@
 "画面上方信息条" = "Info strip above the video";
 "精选、视频页、全屏和底部播放条统一使用：清晰度、画面、编码与码率、当前连接的每个 CDN 节点的实时下载速度、缓冲" = "Shared by Featured, the video page, full screen and the mini player: quality, picture, codec and bitrate, live download speed per connected CDN node, and buffer";
 "28 秒" = "28 s";
+"进度条热度" = "Heat on progress bar";
+"按弹幕密度画出视频里最热闹的片段（B 站官方的高能进度条接口已下线）" = "Shows the busiest moments from danmaku density (bilibili retired its official heat API)";
 "双击画面" = "Double-click the video";
 "应用内全屏铺满 App 窗口（T）；屏幕全屏进入系统全屏（F）。Esc 逐级退出" = "Fill Window fills the app window (T); Full Screen uses macOS full screen (F). Esc steps back out";
 "精选和视频页的侧栏" = "Sidebar on Featured and video pages";
