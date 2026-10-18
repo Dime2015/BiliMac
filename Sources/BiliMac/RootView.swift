@@ -211,6 +211,7 @@ struct TopBar: View {
             CircleIconButton(icon: "chevron.right", label: L("前进"), enabled: app.canForward) { app.goForward() }
             SearchBox(search: app.search).padding(.leading, 6)
             Spacer()
+            AppearanceSwitch()
             AccountButton()
         }
         .padding(.horizontal, 24)

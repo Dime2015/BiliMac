@@ -241,6 +241,7 @@ T = {
 "不显示": ("Never", "表示しない"),
 "悬停时显示": ("On hover", "ホバー時"),
 "外观": ("Appearance", "外観"),
+"外观：%@": ("Appearance: %@", "外観：%@"),
 "更多": ("More", "その他"),
 "防挡人物": ("Keep people clear", "人物をよける"),
 "弹幕从画面里的人身后穿过": ("Danmaku pass behind people in the picture", "コメントが人物の後ろを通ります"),

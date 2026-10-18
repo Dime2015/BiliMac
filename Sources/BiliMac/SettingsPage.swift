@@ -386,7 +386,9 @@ private struct GeneralSection: View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle(text: L("通用"))
             Row(title: L("外观"), subtitle: L("播放器始终保持深色")) {
-                SlidingChips(options: AppAppearance.allCases.map { ($0, $0.label) }, selection: $s.appearance)
+                SlidingChips(options: AppAppearance.allCases.map { ($0, $0.label) },
+                             selection: Binding(get: { s.appearance },
+                                                set: { v in AppearanceTransition.crossfade { s.appearance = v } }))
             }
             Row(title: L("语言"), subtitle: L("切换后重新启动 BiliMac 生效")) {
                 Dropdown(options: AppLanguage.choices, selection: $language)
