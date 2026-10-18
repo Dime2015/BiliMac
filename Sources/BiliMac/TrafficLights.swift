@@ -96,6 +96,8 @@ struct WindowAccessor: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let w = window else { return }
+            // Below this the layout can't fit and SwiftUI would centre an overflowing page, clipping both sides.
+            w.contentMinSize = NSSize(width: RootView.minSize.width, height: RootView.minSize.height)
             MainActor.assumeIsolated { TrafficLights.shared.attach(w) }
         }
     }

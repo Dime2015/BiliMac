@@ -14,6 +14,7 @@ struct BiliMacApp: App {
                 .task { await app.start() }
         }
         .defaultSize(width: 1440, height: 900)
+        .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {}

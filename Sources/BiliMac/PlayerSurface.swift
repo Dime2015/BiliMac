@@ -483,11 +483,14 @@ struct ControlsBar: View {
                     .padding(.leading, 4)
                 if let accessory { accessory.padding(.leading, 12) }
                 Spacer()
-                // Narrow windows: the volume slider shrinks, then it and 统计信息 go, before anything is cut off.
+                        // Narrow players: the volume slider shrinks, then it and 统计信息 go, then the enhancement pill and
+                // the audio mark's label, then 弹幕设置 and 小窗 — so the fullscreen buttons are never cut off.
                 ViewThatFits(in: .horizontal) {
                     rightControls(level: 0)
                     rightControls(level: 1)
                     rightControls(level: 2)
+                    rightControls(level: 3)
+                    rightControls(level: 4)
                 }
             }
         }
@@ -502,20 +505,20 @@ struct ControlsBar: View {
 
     private func rightControls(level: Int) -> some View {
         HStack(spacing: 6) {
-            EnhancementButton(controller: controller).padding(.trailing, 2)
-            AudioBadge(controller: controller)
+            if level < 3 { EnhancementButton(controller: controller).padding(.trailing, 2) }
+            AudioBadge(controller: controller, compact: level >= 3)
             QualityPicker(controller: controller)
             SpeedPicker(controller: controller).padding(.trailing, 4)
             ChromeIcon(icon: settings.danmakuOn ? "text.bubble.fill" : "text.bubble", help: L("弹幕 D"), active: settings.danmakuOn) {
                 settings.danmakuOn.toggle()
             }
-            DanmakuSettingsButton()
+            if level < 4 { DanmakuSettingsButton() }
             DanmakuSendButton(controller: controller)
             if level < 2 {
                 ChromeIcon(icon: "chart.xyaxis.line", help: L("统计信息 I"), active: settings.showStats) { settings.showStats.toggle() }
             }
-            VolumeBar(player: controller, sliderWidth: [90, 50, 0][level]).padding(.horizontal, 4)
-            if let onMiniPlayer, mode == .normal {
+            VolumeBar(player: controller, sliderWidth: level == 0 ? 90 : level == 1 ? 50 : 0).padding(.horizontal, 4)
+            if let onMiniPlayer, mode == .normal, level < 4 {
                 ChromeIcon(icon: "pip.enter", help: L("小窗：返回浏览，在底部继续播放"), action: onMiniPlayer)
             }
             if let onAppFull {
@@ -534,6 +537,7 @@ struct ControlsBar: View {
 /// Hi-Res 无损 / 杜比全景声 mark, shown when the video has such a track; click to switch it on or off.
 private struct AudioBadge: View {
     @ObservedObject var controller: PlayerController
+    var compact = false
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
@@ -547,7 +551,7 @@ private struct AudioBadge: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: dolby ? "hifispeaker.2.fill" : "waveform").font(.system(size: 11, weight: .bold))
-                    Text(dolby ? L("杜比全景声") : L("Hi-Res 无损")).font(.system(size: 12, weight: .bold))
+                    if !compact { Text(dolby ? L("杜比全景声") : L("Hi-Res 无损")).font(.system(size: 12, weight: .bold)) }
                 }
                 .foregroundStyle(on ? Theme.pink : .white.opacity(0.5))
                 .padding(.horizontal, 10)

@@ -5,6 +5,9 @@ struct RootView: View {
     @EnvironmentObject var app: AppModel
     @ObservedObject private var settings = AppSettings.shared
     @Namespace private var playerNS
+    /// Narrow window: the full sidebar gives way to the icon rail so pages keep their width.
+    @State private var compact = false
+    static let minSize = CGSize(width: 960, height: 620)
 
     /// 应用内全屏 / 屏幕全屏: the playing video fills the window.
     @ViewBuilder private var fullPlayer: some View {
@@ -37,8 +40,8 @@ struct RootView: View {
                         SettingsPage()
                     } else {
                         HStack(spacing: 8) {
-                            if !app.route.usesRail { Sidebar().frame(width: 300) }
-                            else if !settings.railAutoHide { IconRail() }
+                            if !app.route.usesRail && !compact { Sidebar().frame(width: 300) }
+                            else if !settings.railAutoHide || !app.route.usesRail { IconRail() }
                             PageHost().frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
@@ -80,7 +83,8 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             app.windowExitedFullScreen()
         }
-        .frame(minWidth: 1040, minHeight: 640)
+        .frame(minWidth: Self.minSize.width, minHeight: Self.minSize.height)
+        .onGeometryChange(for: Bool.self) { $0.size.width < 1180 } action: { compact = $0 }
         .foregroundStyle(Theme.text)
         .background(WindowAccessor())
         .onChange(of: lightsPlacement, initial: true) { _, p in TrafficLights.shared.placement = p }
@@ -91,7 +95,7 @@ struct RootView: View {
         if app.immersive { return .system }
         if app.route == .settings { return .sidebar }
         if app.route.usesRail { return settings.railAutoHide ? .system : .rail }
-        return .sidebar
+        return compact ? .rail : .sidebar
     }
 
     @ViewBuilder private var toast: some View {
@@ -498,12 +502,19 @@ private struct IconRail: View {
             RailIcon(icon: "play.rectangle", label: L("精选"), selected: app.route == .featured, ns: ns) { app.go(.featured) }
             RailIcon(icon: "dot.radiowaves.left.and.right", label: L("动态"), selected: app.route == .dynamics, ns: ns) { app.go(.dynamics) }
             RailIcon(icon: "books.vertical", label: L("历史记录"), selected: app.route == .history, ns: ns) { app.go(.history) }
+            RailIcon(icon: "clock", label: L("稍后再看"), selected: app.route == .watchLater, ns: ns) { app.go(.watchLater) }
+            RailIcon(icon: "star", label: L("收藏夹"), selected: { if case .favorites = app.route { return true }; return false }(), ns: ns) {
+                app.go(.favorites(nil))
+            }
             RailIcon(icon: "bell", label: L("消息"), selected: app.route == .messages, ns: ns) { app.go(.messages) }
                 .overlay(alignment: .topTrailing) { UnreadBadge(count: messages.unread.total).scaleEffect(0.85).offset(x: 2, y: 4).allowsHitTesting(false) }
             Spacer()
-            RailIcon(icon: settings.railAutoHide ? "pin" : "sidebar.left",
-                     label: settings.railAutoHide ? L("固定侧栏") : L("自动隐藏侧栏"), selected: false, ns: ns) {
-                withAnimation(.easeOut(duration: 0.2)) { settings.railAutoHide.toggle() }
+            // Only the 精选 / video pages hide the rail; elsewhere it is just the narrow-window sidebar.
+            if app.route.usesRail {
+                RailIcon(icon: settings.railAutoHide ? "pin" : "sidebar.left",
+                         label: settings.railAutoHide ? L("固定侧栏") : L("自动隐藏侧栏"), selected: false, ns: ns) {
+                    withAnimation(.easeOut(duration: 0.2)) { settings.railAutoHide.toggle() }
+                }
             }
             RailIcon(icon: "gearshape", label: L("设置"), selected: false, ns: ns) { app.go(.settings) }
                 .padding(.bottom, 10)
