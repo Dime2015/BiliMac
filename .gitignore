@@ -1,0 +1,10 @@
+.build/
+build/
+.swiftpm/
+.DS_Store
+*.log
+cookies.json
+# Unused icon drafts (knit-2 is the chosen one)
+icon/knit-1.png
+icon/knit-3.png
+icon/knit-4.png
