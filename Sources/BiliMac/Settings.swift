@@ -169,6 +169,8 @@ final class AppSettings: ObservableObject {
     @Published var danmakuLevel: Int { didSet { d.set(danmakuLevel, forKey: "danmakuLevel") } }
     /// 防挡弹幕: leave people in the picture uncovered.
     @Published var danmakuAvoidPeople: Bool { didSet { d.set(danmakuAvoidPeople, forKey: "danmakuAvoidPeople") } }
+    /// 互动弹幕: show the creator's polls and ratings over the picture.
+    @Published var showInteractive: Bool { didSet { d.set(showInteractive, forKey: "showInteractive") } }
     /// Rules: plain keyword, "/regex/", or "u:<sender hash>".
     @Published var danmakuBlocklist: [String] { didSet { d.set(danmakuBlocklist, forKey: "danmakuBlocklist") } }
     // 显示
@@ -235,6 +237,7 @@ final class AppSettings: ObservableObject {
         danmakuLevel = d.object(forKey: "danmakuLevel") == nil ? 0 : d.integer(forKey: "danmakuLevel")
         danmakuBlocklist = d.stringArray(forKey: "danmakuBlocklist") ?? []
         danmakuAvoidPeople = b("danmakuAvoidPeople", true)
+        showInteractive = b("showInteractive", true)
         showStats = b("showStats", false)
         showFeaturedInfo = b("showFeaturedInfo", true)
         chromeLayout = ChromeLayout(rawValue: d.string(forKey: "chromeLayout") ?? "") ?? .outside

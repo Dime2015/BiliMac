@@ -308,6 +308,8 @@ private struct DanmakuSection: View {
             }
             ToggleRow(title: L("防挡人物"), subtitle: L("在本机识别画面里的人，弹幕从人身后穿过；适用于所有视频，播放时会多用一些 GPU"),
                       isOn: $s.danmakuAvoidPeople)
+            ToggleRow(title: L("互动弹幕"), subtitle: L("UP 主在视频里发起的投票和评分，出现时可以直接参与"),
+                      isOn: $s.showInteractive)
             DanmakuFilterEditor()
                 .padding(.vertical, 14)
         }

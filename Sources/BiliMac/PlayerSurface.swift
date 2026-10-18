@@ -172,6 +172,7 @@ struct PlayerSurface<Overlay: View>: View {
                         .transition(.opacity)
                 }
                 overlay(true)
+                InteractiveOverlay(controller: controller)
             }
             .modifier(PictureSizing(fit: fitVideo))
             .clipped()
@@ -239,6 +240,7 @@ struct PlayerSurface<Overlay: View>: View {
             .allowsHitTesting(false)
 
             overlay(show)
+            InteractiveOverlay(controller: controller)
             PhaseOverlay(controller: controller)
             FlashView(controller: controller)
             if chrome == .full, let topLeading {

@@ -604,6 +604,27 @@ actor BiliAPI {
         return data
     }
 
+    /// 互动弹幕 (polls, ratings) live in the danmaku "view" reply, not in the danmaku list.
+    func interactiveDanmaku(aid: Int?, cid: Int) async throws -> [InteractiveDm] {
+        var url = "https://api.bilibili.com/x/v2/dm/web/view?type=1&oid=\(cid)"
+        if let aid { url += "&pid=\(aid)" }
+        let (data, _) = try await session.data(for: request(URL(string: url)!))
+        return InteractiveDm.parse(data)
+    }
+
+    func voteInteractive(aid: Int, cid: Int, progressMs: Int, voteId: Int, option: Int) async throws {
+        _ = try await post("https://api.bilibili.com/x/web-interface/view/dm/vote", [
+            "aid": "\(aid)", "cid": "\(cid)", "progress": "\(progressMs)", "vote": "\(option)", "vote_id": "\(voteId)",
+        ])
+    }
+
+    /// score: 2, 4, …, 10 (two per star).
+    func gradeInteractive(aid: Int, cid: Int, progressMs: Int, gradeId: Int, score: Int) async throws {
+        _ = try await post("https://api.bilibili.com/x/v2/dm/command/grade/post", [
+            "aid": "\(aid)", "cid": "\(cid)", "progress": "\(progressMs)", "grade_id": "\(gradeId)", "grade_score": "\(score)",
+        ])
+    }
+
     func playInfo(bvid: String, cid: Int) async throws -> PlayInfo {
         let d = try await signedGet("https://api.bilibili.com/x/player/wbi/playurl", [
             "bvid": bvid, "cid": "\(cid)", "qn": "127", "fnval": "4048", "fnver": "0", "fourk": "1",

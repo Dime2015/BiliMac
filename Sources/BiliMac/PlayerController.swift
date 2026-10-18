@@ -32,6 +32,8 @@ final class PlayerController: ObservableObject {
     @Published private(set) var danmaku: [Danmaku] = []
     /// Danmaku-density curve for the progress bar (0…1 per bin); empty when there's too little danmaku.
     @Published private(set) var heat: [Double] = []
+    /// 互动弹幕: the creator's polls and ratings, by time.
+    @Published private(set) var interactions: [InteractiveDm] = []
     /// People in the picture, for 防挡弹幕.
     let masker = PersonMasker()
     let audioFX = AudioFX()
@@ -199,6 +201,11 @@ final class PlayerController: ObservableObject {
         ticker?.invalidate()
     }
 
+    /// Keeps an answered poll / rating so it shows the result if it comes round again.
+    func answer(_ item: InteractiveDm) {
+        if let i = interactions.firstIndex(where: { $0.id == item.id }) { interactions[i] = item }
+    }
+
     // MARK: Loading
 
     /// startAt: open at this position (seconds) instead of the start / the account's resume point.
@@ -215,6 +222,7 @@ final class PlayerController: ObservableObject {
         audio = nil
         danmaku = []
         heat = []
+        interactions = []
         history = []
         realPlayed = 0
         sentFirstBeat = false
@@ -234,6 +242,7 @@ final class PlayerController: ObservableObject {
         loadTask = Task { [weak self] in
             guard let self else { return }
             async let dm: [Danmaku] = (try? await Danmaku.load(cid: cid)) ?? []
+            async let cmds: [InteractiveDm] = (try? await BiliAPI.shared.interactiveDanmaku(aid: aid, cid: cid)) ?? []
             do {
                 let info = try await BiliAPI.shared.playInfo(bvid: bvid, cid: cid)
                 guard !Task.isCancelled else { return }
@@ -257,6 +266,11 @@ final class PlayerController: ObservableObject {
                 self.danmaku = list
                 let duration = self.info?.duration ?? 0
                 self.heat = Danmaku.heat(list, duration: duration > 0 ? duration : self.clock.duration)
+            }
+            let interactive = await cmds
+            if !Task.isCancelled {
+                self.interactions = interactive
+                if !interactive.isEmpty { log("\(bvid) interactive danmaku: \(interactive.map { "\($0.isVote ? "vote" : "grade")@\(Int($0.time))s" }.joined(separator: " "))") }
             }
         }
     }

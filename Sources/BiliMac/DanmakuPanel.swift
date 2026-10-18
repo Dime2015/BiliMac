@@ -62,6 +62,14 @@ struct DanmakuPanel: View {
                     Spacer()
                     Toggle("", isOn: $s.danmakuAvoidPeople).toggleStyle(PinkToggleStyle()).labelsHidden().fixedSize()
                 }
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("互动弹幕")).font(.system(size: 12.5, weight: .semibold))
+                        Text(L("UP 主发起的投票和评分")).font(.system(size: 11)).foregroundStyle(Theme.text3)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $s.showInteractive).toggleStyle(PinkToggleStyle()).labelsHidden().fixedSize()
+                }
                 MenuDivider().padding(.horizontal, -6)
                 DanmakuFilterEditor(compact: true)
             }
