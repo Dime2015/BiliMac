@@ -10,6 +10,8 @@ final class DetailModel: ObservableObject {
     @Published var error: String?
     @Published var page: VideoPage?
     @Published var tint = Theme.tint(hex: 0x1F3B5C, light: 0xDDE6F0)
+    /// The uploader's space card, for the banner above their name.
+    @Published var ownerSpace: SpaceInfo?
     @Published var comments: [Comment] = []
     @Published var commentMode = 3 { didSet { if oldValue != commentMode { Task { await reloadComments() } } } }
     @Published var commentTotal = 0
@@ -43,6 +45,7 @@ final class DetailModel: ObservableObject {
             if let nd = AppModel.shared.nowDetail, nd.bvid == card.bvid { d = nd } else { d = try await BiliAPI.shared.detail(bvid: card.bvid) }
             detail = d
             actions.detail = d
+            Task { self.ownerSpace = try? await BiliAPI.shared.space(mid: d.ownerMid) }
             if card.cover == nil, let t = await TintCache.shared.tint(for: d.cover) { tint = t }
             if adopted, player.phase != .idle {
                 if case .failed = player.phase { player.retry() } else { player.play() }
@@ -286,11 +289,19 @@ private struct SidePanel: View {
             let d = actions.detail?.bvid == base.bvid ? actions.detail! : base
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 10) {
-                    model.tint.frame(height: 96)
+                    // The uploader's own banner; their cover tint shows while it loads (or if they have none).
+                    Color.clear.frame(height: 96)
+                        .overlay(RemoteImage(url: model.ownerSpace?.banner))
+                        .background(model.tint)
+                        .clipped()
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(alignment: .bottom) {
-                            Avatar(url: d.ownerFace, size: 56)
-                                .overlay(Circle().strokeBorder(Theme.elevated, lineWidth: 3))
+                            Button { app.go(.space(d.ownerMid)) } label: {
+                                Avatar(url: d.ownerFace, size: 56)
+                                    .overlay(Circle().strokeBorder(Theme.elevated, lineWidth: 3))
+                            }
+                            .buttonStyle(.pressable)
+                            .help(L("查看 UP 主主页"))
                             Spacer()
                             Button { actions.toggleFollow() } label: {
                                 Text(d.following ? L("已关注") : L("+ 关注"))
@@ -302,7 +313,14 @@ private struct SidePanel: View {
                             .buttonStyle(.pressable)
                         }
                         .padding(.top, -38)
-                        Text(d.ownerName).font(.system(size: 16, weight: .bold)).lineLimit(1)
+                        Button { app.go(.space(d.ownerMid)) } label: {
+                            HStack(spacing: 4) {
+                                Text(d.ownerName).font(.system(size: 16, weight: .bold)).lineLimit(1)
+                                Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.text3)
+                            }
+                        }
+                        .buttonStyle(.pressable)
+                        .help(L("查看 UP 主主页"))
                         Text(Lf("%@ 粉丝 · %@ 投稿", "\(formatCount(d.follower))", "\(formatCount(d.archiveCount))"))
                             .font(.system(size: 12.5)).foregroundStyle(Theme.text2)
                     }
@@ -432,11 +450,16 @@ private struct CommentRow: View {
     let c: Comment
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Avatar(url: c.avatar, size: 36)
+            Button { if c.mid > 0 { AppModel.shared.go(.space(c.mid)) } } label: { Avatar(url: c.avatar, size: 36) }
+                .buttonStyle(.pressable)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    Text(c.uname).font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(c.isVip ? Theme.pink : Theme.text2)
+                    Button { if c.mid > 0 { AppModel.shared.go(.space(c.mid)) } } label: {
+                        Text(c.uname).font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(c.isVip ? Theme.pink : Theme.text2)
+                    }
+                    .buttonStyle(.pressable)
+
                     if c.level > 0 {
                         Text("LV\(c.level)").font(.system(size: 9.5, weight: .heavy))
                             .foregroundStyle(c.level >= 5 ? Color(hex: 0xF0A24A) : Theme.text3)

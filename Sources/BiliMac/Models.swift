@@ -107,8 +107,25 @@ struct Relation {
     var attention = false
 }
 
+/// An uploader's space (UP 主主页) header.
+struct SpaceInfo {
+    let mid: Int
+    let name: String
+    let face: URL?
+    let sign: String
+    let banner: URL?
+    let fans: Int
+    let followingCount: Int
+    let likes: Int
+    let archives: Int
+    let level: Int
+    let official: String?
+    var following: Bool
+}
+
 struct Comment: Identifiable {
     let id: Int
+    let mid: Int
     let uname: String
     let avatar: URL?
     let level: Int
@@ -127,7 +144,8 @@ struct Comment: Identifiable {
             (s.obj("member")?.str("uname") ?? "", s.obj("content")?.str("message") ?? "")
         }
         return Comment(
-            id: id, uname: m.str("uname") ?? "", avatar: imageURL(m.str("avatar")),
+            id: id, mid: r.int("mid") ?? 0, uname: m.str("uname") ?? "", avatar: imageURL(m.str("avatar")),
+
             level: m.obj("level_info")?.int("current_level") ?? 0,
             isVip: (m.obj("vip")?.int("vipStatus") ?? 0) == 1,
             message: r.obj("content")?.str("message") ?? "", like: r.int("like") ?? 0,

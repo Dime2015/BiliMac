@@ -4,7 +4,7 @@ import Combine
 import SwiftUI
 
 enum Route: Hashable {
-    case home, featured, dynamics, history, watchLater, favorites(Int?), search(String), video(VideoCard), settings
+    case home, featured, dynamics, history, watchLater, favorites(Int?), search(String), video(VideoCard), space(Int), settings
 
     /// Pages that use the collapsed icon rail instead of the full sidebar.
     var usesRail: Bool {
@@ -140,6 +140,8 @@ final class AppModel: ObservableObject {
             else if r == "dynamics" { go(.dynamics) }
             else if r.hasPrefix("search:") { submitSearch(String(r.dropFirst(7))) }
             else if r.hasPrefix("video:") { open(VideoCard(bvid: String(r.dropFirst(6)), title: "", cover: nil, owner: "")) }
+            else if r.hasPrefix("space:"), let mid = Int(r.dropFirst(6)) { go(.space(mid)) }
+
         }
     }
 
@@ -411,6 +413,15 @@ final class AppModel: ObservableObject {
                     let p = Int(s["p"] ?? "1")!
                     let r = try await api.search(q, page: p)
                     return (r.items, ["p": "\(p + 1)"], p < r.pages)
+                }
+            } else if key.hasPrefix("space:") {
+                // space:<mid>:<order>
+                let parts = key.split(separator: ":")
+                let mid = Int(parts[1]) ?? 0, order = String(parts[2])
+                l = PagedList { s in
+                    let p = Int(s["p"] ?? "1")!
+                    let r = try await api.spaceVideos(mid: mid, order: order, page: p)
+                    return (r.items, ["p": "\(p + 1)"], r.more)
                 }
             } else if key.hasPrefix("fav:"), let id = Int(key.dropFirst(4)) {
                 l = PagedList { s in

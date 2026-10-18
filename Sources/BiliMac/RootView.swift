@@ -106,7 +106,7 @@ private struct PageHost: View {
 
     static func cacheable(_ r: Route) -> Bool {
         switch r {
-        case .home, .dynamics, .history, .watchLater, .favorites, .search: return true
+        case .home, .dynamics, .history, .watchLater, .favorites, .search, .space: return true
         default: return false
         }
     }
@@ -165,6 +165,8 @@ private struct PageContent: View {
             case .search(let q):
                 ListPage(kicker: L("搜索结果"), title: q, subtitle: nil, key: "search:\(q)", emptyText: L("没有找到相关视频"))
             case .video(let card): VideoScreen(card: card).id(card.bvid)
+            case .space(let mid): SpacePage(mid: mid).id(mid)
+
             case .settings: EmptyView()
             }
         }

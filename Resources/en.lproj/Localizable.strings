@@ -65,6 +65,7 @@
 "打开" = "Open";
 "在底部播放" = "Play in Mini Player";
 "添加到稍后再看" = "Add to Watch Later";
+"查看 UP 主主页" = "View creator's page";
 "从列表中移除" = "Remove from List";
 "复制链接" = "Copy Link";
 "在浏览器中打开" = "Open in Browser";
@@ -312,6 +313,14 @@
 "语言" = "Language";
 "切换后重新启动 BiliMac 生效" = "Takes effect after BiliMac restarts";
 "立即重新启动" = "Restart Now";
+"投稿视频" = "Videos";
+"最新发布" = "Latest";
+"最多播放" = "Most played";
+"这位 UP 主还没有投稿" = "This creator hasn't posted any videos yet";
+"UP 主" = "Creator";
+"粉丝" = "Followers";
+"获赞" = "Likes";
+"投稿" = "Videos";
 "没有可测速的视频" = "No video available to test with";
 "没有视频地址" = "No video URL";
 "%.1f亿" = "%.1f亿";

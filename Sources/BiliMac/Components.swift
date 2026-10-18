@@ -385,7 +385,11 @@ struct CardMenu: View {
         if AppModel.shared.account.loggedIn {
             Button(L("添加到稍后再看")) { AppModel.shared.addToWatchLater(card) }
         }
+        if let mid = card.ownerMid, mid > 0 {
+            Button(L("查看 UP 主主页")) { AppModel.shared.go(.space(mid)) }
+        }
         if let removeAction { Button(L("从列表中移除")) { removeAction(card) } }
+
         Divider()
         Button(L("复制链接")) { AppModel.shared.copyLink(card) }
         Button(L("在浏览器中打开")) { NSWorkspace.shared.open(card.url) }

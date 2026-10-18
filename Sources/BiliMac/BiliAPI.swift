@@ -168,18 +168,23 @@ actor BiliAPI {
 
     private static let mixinTable = [46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13, 37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4, 22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52]
 
-    private func request(_ url: URL) -> URLRequest {
+    /// anonymous: no cookies at all, for public lists that rate-limit a device ID (buvid) once it has hit a 412.
+    private func request(_ url: URL, anonymous: Bool = false) -> URLRequest {
         var r = URLRequest(url: url)
         r.setValue(browserUA, forHTTPHeaderField: "User-Agent")
         r.setValue(biliReferer, forHTTPHeaderField: "Referer")
         r.setValue("https://www.bilibili.com", forHTTPHeaderField: "Origin")
-        let cookie = CookieJar.shared.header(signedIn: !Env.demo || url.path.contains("playurl"))
-        if !cookie.isEmpty { r.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        if anonymous {
+            r.httpShouldHandleCookies = false
+        } else {
+            let cookie = CookieJar.shared.header(signedIn: !Env.demo || url.path.contains("playurl"))
+            if !cookie.isEmpty { r.setValue(cookie, forHTTPHeaderField: "Cookie") }
+        }
         return r
     }
 
-    private func getJSON(_ url: URL) async throws -> (json: JSON, response: HTTPURLResponse) {
-        let (data, resp) = try await session.data(for: request(url))
+    private func getJSON(_ url: URL, anonymous: Bool = false) async throws -> (json: JSON, response: HTTPURLResponse) {
+        let (data, resp) = try await session.data(for: request(url, anonymous: anonymous))
         guard let http = resp as? HTTPURLResponse else { throw APIError(description: L("无响应")) }
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? JSON else {
             throw APIError(description: Lf("接口返回异常（HTTP %@）", "\(http.statusCode)"))
@@ -205,6 +210,14 @@ actor BiliAPI {
         var c = URLComponents(string: base)!
         if !params.isEmpty { c.queryItems = params.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
         return try await call(c.url!)
+    }
+
+    /// GET without cookies (public data only).
+    func anonymousGet(_ base: String, _ params: [String: String]) async throws -> JSON {
+        var c = URLComponents(string: base)!
+        c.queryItems = params.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        let (obj, _) = try await getJSON(c.url!, anonymous: true)
+        return try check(obj, c.url!.path)
     }
 
     func signedGet(_ base: String, _ params: [String: String]) async throws -> JSON {
@@ -433,7 +446,64 @@ actor BiliAPI {
                         favorite: d.bool("favorite") ?? false, attention: d.bool("attention") ?? false)
     }
 
+    /// UP 主 card: name, avatar, banner, counts, and whether you follow them.
+    func space(mid: Int) async throws -> SpaceInfo {
+        let d = try await get("https://api.bilibili.com/x/web-interface/card", ["mid": "\(mid)", "photo": "true"])
+        let c = d.obj("card") ?? [:]
+        let official = c.obj("Official")?.str("title").flatMap { $0.isEmpty ? nil : $0 }
+        return SpaceInfo(
+            mid: mid, name: c.str("name") ?? "", face: imageURL(c.str("face")), sign: c.str("sign") ?? "",
+            banner: imageURL(d.obj("space")?.str("l_img")), fans: d.int("follower") ?? c.int("fans") ?? 0,
+            followingCount: c.int("attention") ?? 0, likes: d.int("like_num") ?? 0, archives: d.int("archive_count") ?? 0,
+            level: c.obj("level_info")?.int("current_level") ?? 0, official: official, following: d.bool("following") ?? false)
+    }
+
+    /// An uploader's videos. order: "pubdate" (newest) or "click" (most played).
+    func spaceVideos(mid: Int, order: String, page: Int) async throws -> (items: [VideoCard], more: Bool) {
+        if order == "pubdate" { return try await spaceArchives(mid: mid, page: page) }
+        do {
+            // The space search is the only one that sorts by plays. It wants the browser's WebGL fingerprint
+            // fields and is quick to answer -352 / HTTP 412.
+            let d = try await signedGet("https://api.bilibili.com/x/space/wbi/arc/search", [
+                "mid": "\(mid)", "ps": "30", "pn": "\(page)", "order": order, "platform": "web", "web_location": "1550101",
+                "dm_img_list": "[]", "dm_img_str": "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
+                "dm_cover_img_str": "QU5HTEUgKEFwcGxlLCBBcHBsZSBNMSwgT3BlbkdMIDQuMSlHb29nbGUgSW5jLiAoQXBwbGUp",
+                "dm_img_inter": #"{"ds":[],"wh":[0,0,0],"of":[0,0,0]}"#,
+            ])
+            let items: [VideoCard] = (d.obj("list")?.arr("vlist") ?? []).compactMap { v in
+                guard let bvid = v.str("bvid"), !bvid.isEmpty else { return nil }
+                return VideoCard(bvid: bvid, aid: v.int("aid"), title: plainTitle(v.str("title") ?? ""), cover: imageURL(v.str("pic")),
+                                 owner: v.str("author") ?? "", ownerMid: v.int("mid"), views: v.int("play"),
+                                 danmaku: v.int("video_review"), duration: parseDurationText(v.str("length")),
+                                 pubdate: v.int("created").map { Date(timeIntervalSince1970: TimeInterval($0)) })
+            }
+            let total = d.obj("page")?.int("count") ?? 0
+            return (items, page * 30 < total)
+        } catch {
+            log("space \(mid) arc/search (\(order)) failed: \(error); sorting the archive list locally")
+            guard page == 1 else { return ([], false) }
+            // Up to 150 recent videos, sorted by plays here.
+            var all: [VideoCard] = []
+            for p in 1...5 {
+                let r = try await spaceArchives(mid: mid, page: p)
+                all += r.items
+                if !r.more { break }
+            }
+            return (all.sorted { ($0.views ?? 0) > ($1.views ?? 0) }, false)
+        }
+    }
+
+    /// Newest-first archive list; no signature and rarely rate-limited.
+    private func spaceArchives(mid: Int, page: Int) async throws -> (items: [VideoCard], more: Bool) {
+        let d = try await anonymousGet("https://api.bilibili.com/x/series/recArchivesByKeywords",
+
+                              ["mid": "\(mid)", "keywords": "", "ps": "30", "pn": "\(page)"])
+        let items = d.arr("archives").compactMap(VideoCard.archive)
+        return (items, page * 30 < (d.obj("page")?.int("total") ?? 0))
+    }
+
     /// mode 3 = 热门, 2 = 最新.
+
     func replies(aid: Int, mode: Int, offset: String, upMid: Int?) async throws -> (items: [Comment], next: String, end: Bool, total: Int) {
         let pagination = "{\"offset\":\"\(offset.replacingOccurrences(of: "\"", with: "\\\""))\"}"
         let d = try await signedGet("https://api.bilibili.com/x/v2/reply/wbi/main", [
