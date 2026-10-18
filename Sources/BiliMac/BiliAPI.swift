@@ -619,6 +619,27 @@ actor BiliAPI {
         return data
     }
 
+    /// Posts a comment on a video, or a reply when `root` is set; returns the new comment.
+    func addComment(aid: Int, message: String, root: Int? = nil, upMid: Int?) async throws -> Comment? {
+        var form = ["type": "1", "oid": "\(aid)", "message": message, "plat": "1"]
+        if let root { form["root"] = "\(root)"; form["parent"] = "\(root)" }
+        let d = try await post("https://api.bilibili.com/x/v2/reply/add", form)
+        if d.bool("need_captcha") == true { throw APIError(description: L("需要验证码，请在官方客户端发表")) }
+        return d.obj("reply").flatMap { Comment.parse($0, upMid: upMid) }
+    }
+
+    func likeComment(aid: Int, rpid: Int, _ on: Bool) async throws {
+        try await post("https://api.bilibili.com/x/v2/reply/action", ["type": "1", "oid": "\(aid)", "rpid": "\(rpid)", "action": on ? "1" : "0"])
+    }
+
+    /// mode: 1 scrolling, 5 top, 4 bottom. color: 0xRRGGBB.
+    func sendDanmaku(aid: Int, cid: Int, text: String, progressMs: Int, mode: Int, color: UInt32) async throws {
+        try await post("https://api.bilibili.com/x/v2/dm/post", [
+            "type": "1", "oid": "\(cid)", "aid": "\(aid)", "msg": text, "progress": "\(progressMs)", "color": "\(color)",
+            "fontsize": "25", "pool": "0", "mode": "\(mode)", "plat": "1", "rnd": "\(Int(Date().timeIntervalSince1970 * 1_000_000))",
+        ])
+    }
+
     /// 互动弹幕 (polls, ratings) live in the danmaku "view" reply, not in the danmaku list.
     func interactiveDanmaku(aid: Int?, cid: Int) async throws -> [InteractiveDm] {
         var url = "https://api.bilibili.com/x/v2/dm/web/view?type=1&oid=\(cid)"

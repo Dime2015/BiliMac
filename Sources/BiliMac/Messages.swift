@@ -196,6 +196,38 @@ extension BiliAPI {
         ])
     }
 
+    /// Device id that 私信 sends carry, kept per install like the web client's.
+    static var imDeviceID: String {
+        if let id = UserDefaults.standard.string(forKey: "imDeviceID") { return id }
+        let id = UUID().uuidString
+        UserDefaults.standard.set(id, forKey: "imDeviceID")
+        return id
+    }
+
+    /// Sends a text 私信 from `sender` to the user `receiver`; returns its msg_key.
+    @discardableResult
+    func sendChat(from sender: Int, to receiver: Int, text: String) async throws -> Int? {
+        guard let csrf = CookieJar.shared["bili_jct"] else { throw APIError(description: L("需要登录")) }
+        // Testing the message box without messaging anyone: BILIMAC_NO_SEND=1 fails every send locally.
+        if ProcessInfo.processInfo.environment["BILIMAC_NO_SEND"] != nil {
+            try await Task.sleep(for: .seconds(1))
+            throw APIError(description: "BILIMAC_NO_SEND is set, nothing was sent")
+        }
+        let dev = Self.imDeviceID
+        let body = try JSONSerialization.data(withJSONObject: ["content": text], options: .withoutEscapingSlashes)
+        // The web client WBI-signs the sender / receiver / device in the URL.
+        let url = try await signedURL("https://api.vc.bilibili.com/web_im/v1/web_im/send_msg", [
+            "w_sender_uid": "\(sender)", "w_receiver_id": "\(receiver)", "w_dev_id": dev,
+        ])
+        let d = try await post(url.absoluteString, [
+            "msg[sender_uid]": "\(sender)", "msg[receiver_type]": "1", "msg[receiver_id]": "\(receiver)",
+            "msg[msg_type]": "1", "msg[msg_status]": "0", "msg[content]": String(decoding: body, as: UTF8.self),
+            "msg[timestamp]": "\(Int(Date().timeIntervalSince1970))", "msg[new_face_version]": "0", "msg[dev_id]": dev,
+            "from_firework": "0", "csrf_token": csrf, "build": "0", "mobi_app": "web",
+        ])
+        return d.int("msg_key")
+    }
+
     enum FeedKind: String { case reply, at, like }
 
     /// 回复我的 / @我的 / 收到的赞, newest first. `cursor`: (id, time) of the last item for the next page.
@@ -343,6 +375,15 @@ final class MessageCenter: ObservableObject {
         if let i = sessions.firstIndex(where: { $0.id == s.id }) { sessions[i].unread = 0 }
         unread.chat = max(0, unread.chat - s.unread)
         Task { try? await BiliAPI.shared.ackChat(talker: s.talker, type: s.type, seqno: max(seqno, s.maxSeqno)) }
+    }
+
+    /// A message I sent: the chat moves to the top with it as the preview.
+    func sent(in id: String, preview: String) {
+        guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
+        var s = sessions.remove(at: i)
+        s.preview = preview
+        s.time = Date()
+        sessions.insert(s, at: 0)
     }
 
     func loadSystem() async {
@@ -553,8 +594,13 @@ private struct ConversationView: View {
     @State private var loading = true
     @State private var loadingOlder = false
     @State private var error: String?
+    @State private var draft = ""
+    /// Sent optimistically, still waiting for bilibili.
+    @State private var pending: Set<Int> = []
 
     private var me: Int { AppModel.shared.account.mid ?? 0 }
+    /// Official accounts (社区中心, 服务通知 …) don't take replies.
+    private var canReply: Bool { !session.official && session.type == 1 }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -574,6 +620,7 @@ private struct ConversationView: View {
             .padding(.vertical, 12)
             Rectangle().fill(Theme.line.opacity(0.35)).frame(height: 1)
 
+            ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 10) {
                     if more {
@@ -589,6 +636,8 @@ private struct ConversationView: View {
                             Text(stamp(m.time)).font(.system(size: 11)).foregroundStyle(Theme.text3).padding(.top, 6)
                         }
                         MessageBubble(message: m, mine: m.sender == me, face: m.sender == me ? AppModel.shared.account.face : session.face)
+                            .opacity(pending.contains(m.id) ? 0.55 : 1)
+                            .id(m.id)
                     }
                     if loading { ProgressView().controlSize(.small).padding(30) }
                     if let error { Text(error).font(.system(size: 12)).foregroundStyle(Theme.text3).padding(20) }
@@ -597,12 +646,12 @@ private struct ConversationView: View {
                 .padding(.vertical, 16)
             }
             .defaultScrollAnchor(.bottom)
+            .onChange(of: messages.last?.id) { _, id in
+                if let id { withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .bottom) } }
+            }
+            }
 
-            Text(L("BiliMac 目前只能查看私信，回复请使用官方客户端"))
-                .font(.system(size: 11)).foregroundStyle(Theme.text3)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(Theme.elevated.opacity(0.5))
+            if canReply { ChatComposer(text: $draft, onSend: send) }
         }
         .task {
             do {
@@ -612,6 +661,31 @@ private struct ConversationView: View {
                 center.opened(session, upTo: r.list.last?.seqno ?? 0)
             } catch { self.error = error.localizedDescription }
             loading = false
+        }
+    }
+
+    private func send() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        guard text.count <= 500 else { AppModel.shared.notify(L("消息不能超过 500 字")); return }
+        guard me != 0, !Env.demo else { AppModel.shared.notify(L("需要登录")); return }
+        let temp = ChatMessage(id: -Int(Date().timeIntervalSince1970 * 1000), seqno: messages.last?.seqno ?? 0,
+                               sender: me, time: Date(), content: .text(text))
+        draft = ""
+        messages.append(temp)
+        pending.insert(temp.id)
+        center.sent(in: session.id, preview: text)
+        Task {
+            do {
+                try await BiliAPI.shared.sendChat(from: me, to: session.talker, text: text)
+                pending.remove(temp.id)
+            } catch {
+                pending.remove(temp.id)
+                messages.removeAll { $0.id == temp.id }
+                // Give the text back so nothing typed is lost.
+                if draft.isEmpty { draft = text }
+                AppModel.shared.notify(Lf("发送失败：%@", error.localizedDescription))
+            }
         }
     }
 
@@ -631,6 +705,126 @@ private struct ConversationView: View {
         let cal = Calendar.current
         f.dateFormat = cal.isDateInToday(d) ? "HH:mm" : cal.isDate(d, equalTo: Date(), toGranularity: .year) ? "M-d HH:mm" : "yyyy-M-d HH:mm"
         return f.string(from: d)
+    }
+}
+
+/// Message box under a chat: Return sends, Shift+Return starts a new line.
+private struct ChatComposer: View {
+    @Binding var text: String
+    let onSend: () -> Void
+    @State private var height: CGFloat = 22
+
+    private var empty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            ChatInput(text: $text, height: $height, onSubmit: onSend)
+                .frame(height: height)
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(L("发消息…  Enter 发送，Shift + Enter 换行"))
+                            .font(.system(size: 13.5)).foregroundStyle(Theme.text3)
+                            .padding(.leading, 5).padding(.top, 2)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            Button(action: onSend) {
+                Image(systemName: "paperplane.fill").font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(empty ? Theme.text3 : Theme.onPink)
+                    .frame(width: 38, height: 38)
+                    .background(empty ? Theme.chip : Theme.pink, in: Circle())
+            }
+            .buttonStyle(.pressable)
+            .disabled(empty)
+            .help(L("发送"))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Theme.elevated.opacity(0.5))
+    }
+}
+
+/// NSTextView so Return can send while an input method's Return (committing pinyin / kana) still goes to the IME.
+private struct ChatInput: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var height: CGFloat
+    let onSubmit: () -> Void
+
+    static let font = NSFont.systemFont(ofSize: 13.5)
+    static let maxHeight: CGFloat = 120
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSTextView.scrollableTextView()
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        let tv = scroll.documentView as! NSTextView
+        tv.delegate = context.coordinator
+        tv.font = Self.font
+        tv.textColor = .themeText
+        tv.drawsBackground = false
+        tv.isRichText = false
+        tv.importsGraphics = false
+        tv.allowsUndo = true
+        tv.textContainerInset = NSSize(width: 0, height: 2)
+        SearchNSTextField.quiet(tv)
+        scroll.contentView.postsFrameChangedNotifications = true
+        context.coordinator.observer = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification, object: scroll.contentView, queue: .main
+        ) { [weak tv, weak coordinator = context.coordinator] _ in
+            if let tv { coordinator?.fit(tv) }
+        }
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.parent = self
+        guard let tv = scroll.documentView as? NSTextView, tv.string != text, !tv.hasMarkedText() else { return }
+        tv.string = text
+        context.coordinator.fit(tv)
+    }
+
+    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+        if let o = coordinator.observer { NotificationCenter.default.removeObserver(o) }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: ChatInput
+        var observer: NSObjectProtocol?
+        init(_ p: ChatInput) { parent = p }
+
+        func textDidChange(_ n: Notification) {
+            guard let tv = n.object as? NSTextView else { return }
+            parent.text = tv.string
+            fit(tv)
+        }
+
+        func textView(_ tv: NSTextView, doCommandBy sel: Selector) -> Bool {
+            guard sel == #selector(NSResponder.insertNewline(_:)) else { return false }
+            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+                tv.insertNewlineIgnoringFieldEditor(nil)
+            } else {
+                parent.onSubmit()
+            }
+            return true
+        }
+
+        /// Grows with the text up to about five lines, then scrolls.
+        func fit(_ tv: NSTextView) {
+            guard let lm = tv.layoutManager, let tc = tv.textContainer else { return }
+            lm.ensureLayout(for: tc)
+            let line = lm.defaultLineHeight(for: ChatInput.font)
+            let used = max(lm.usedRect(for: tc).height, line) + tv.textContainerInset.height * 2
+            let h = min(ceil(used), ChatInput.maxHeight)
+            guard abs(h - parent.height) > 0.5 else { return }
+            DispatchQueue.main.async { self.parent.height = h }
+        }
     }
 }
 

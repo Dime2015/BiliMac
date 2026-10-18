@@ -145,11 +145,13 @@ struct Comment: Identifiable {
     let level: Int
     let isVip: Bool
     let message: String
-    let like: Int
+    var like: Int
     let ctime: Date
-    let rcount: Int
-    let previews: [(String, String)]
+    var rcount: Int
+    var previews: [(String, String)]
     let isUp: Bool
+    /// I liked it.
+    var liked = false
 
     static func parse(_ r: JSON, upMid: Int?) -> Comment? {
         guard let id = r.int("rpid") else { return nil }
@@ -164,7 +166,7 @@ struct Comment: Identifiable {
             message: r.obj("content")?.str("message") ?? "", like: r.int("like") ?? 0,
             ctime: Date(timeIntervalSince1970: TimeInterval(r.int("ctime") ?? 0)),
             rcount: r.int("rcount") ?? 0, previews: Array(previews),
-            isUp: upMid != nil && r.int("mid") == upMid)
+            isUp: upMid != nil && r.int("mid") == upMid, liked: r.int("action") == 1)
     }
 }
 

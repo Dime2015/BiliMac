@@ -242,3 +242,119 @@ private struct RuleRow: View {
         return rule
     }
 }
+
+/// 发弹幕: opens a small composer above the control bar (also with Return while a video plays).
+struct DanmakuSendButton: View {
+    @ObservedObject var controller: PlayerController
+    @State private var open = false
+    @State private var hover = false
+    /// Return key from the input router.
+    static let requests = NotificationCenter.default.publisher(for: .init("BiliMacComposeDanmaku"))
+
+    var body: some View {
+        Button { open.toggle() } label: {
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(open ? Theme.pink : .white)
+                .frame(width: 32, height: 32)
+                .background(Theme.text.opacity(hover ? 0.16 : 0), in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.pressable)
+        .onHover { hover = $0 }
+        .help(L("发弹幕 ⏎"))
+        .onReceive(Self.requests) { _ in open = true }
+        .floatingPanel(id: "danmaku-send-\(ObjectIdentifier(controller).hashValue)", isPresented: $open, placement: .above(.center)) {
+            DanmakuComposer(controller: controller) { open = false }.environment(\.colorScheme, .dark)
+        }
+    }
+}
+
+private struct DanmakuComposer: View {
+    @ObservedObject var controller: PlayerController
+    let done: () -> Void
+    @ObservedObject private var app = AppModel.shared
+    @State private var text = ""
+    @State private var sending = false
+    @AppStorage("danmakuSendMode") private var mode = 1
+    @AppStorage("danmakuSendColor") private var color = 0xFFFFFF
+    @FocusState private var focused: Bool
+
+    private static let colors: [Int] = [0xFFFFFF, 0xFE0302, 0xFF7204, 0xFFD302, 0xA0EE00, 0x00CD00, 0x89D5FF, 0x4266BE, 0xCC0273]
+    private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        MenuSurface(width: 380) {
+            VStack(alignment: .leading, spacing: 12) {
+                if !app.account.loggedIn {
+                    Text(L("登录后才能发弹幕")).font(.system(size: 13, weight: .semibold))
+                    PillButton(title: L("登录")) { done(); app.showLogin = true }
+                } else {
+                    HStack(spacing: 8) {
+                        TextField(L("发个友善的弹幕见证当下"), text: $text)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13.5))
+                            .focused($focused)
+                            .onSubmit { send() }
+                            .onExitCommand { done() }
+                            .onChange(of: text) { _, t in if t.count > 100 { text = String(t.prefix(100)) } }
+                            .padding(.horizontal, 10)
+                            .frame(height: 32)
+                            .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
+                        Button { send() } label: {
+                            Group {
+                                if sending { ProgressView().controlSize(.small) } else { Text(L("发送")).font(.system(size: 12.5, weight: .bold)) }
+                            }
+                            .foregroundStyle(.black)
+                            .frame(width: 54, height: 32)
+                            .background(Theme.pink.opacity(trimmed.isEmpty ? 0.45 : 1), in: RoundedRectangle(cornerRadius: 7))
+                        }
+                        .buttonStyle(.pressable)
+                        .disabled(trimmed.isEmpty || sending)
+                    }
+                    HStack(spacing: 12) {
+                        SlidingChips(options: [(1, L("滚动")), (5, L("顶部")), (4, L("底部"))], selection: $mode, style: .white)
+                            .scaleEffect(0.9, anchor: .leading)
+                        Spacer(minLength: 0)
+                        Text("\(text.count)/100").font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Theme.text3)
+                    }
+                    HStack(spacing: 7) {
+                        ForEach(Self.colors, id: \.self) { c in
+                            Button { color = c } label: {
+                                Circle().fill(Color(hex: UInt32(c)))
+                                    .frame(width: 20, height: 20)
+                                    .overlay(Circle().strokeBorder(.white.opacity(color == c ? 0.95 : 0.2), lineWidth: color == c ? 2 : 1))
+                                    .padding(2)
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.pressable)
+                        }
+                    }
+                    Text(L("在当前播放位置发送；彩色、顶部和底部弹幕可能需要更高的账号等级或大会员"))
+                        .font(.system(size: 10.5)).foregroundStyle(Theme.text3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(12)
+        }
+        .onAppear { focused = true }
+    }
+
+    private func send() {
+        let t = trimmed
+        guard !t.isEmpty, !sending else { return }
+        sending = true
+        Task {
+            do {
+                try await controller.sendDanmaku(t, mode: mode, color: UInt32(color))
+                if !AppSettings.shared.danmakuOn { AppSettings.shared.danmakuOn = true }
+                text = ""
+                done()
+                controller.flash("checkmark.bubble.fill", L("弹幕已发送"))
+            } catch {
+                AppModel.shared.notify(Lf("弹幕发送失败：%@", error.localizedDescription))
+            }
+            sending = false
+        }
+    }
+}

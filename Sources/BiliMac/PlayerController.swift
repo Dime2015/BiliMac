@@ -211,6 +211,17 @@ final class PlayerController: ObservableObject {
         ticker?.invalidate()
     }
 
+    /// Sends a danmaku at the current time and shows it right away.
+    func sendDanmaku(_ text: String, mode: Int, color: UInt32) async throws {
+        guard let aid else { throw APIError(description: L("视频信息还没加载完")) }
+        let t = max(0, player.currentTime().seconds)
+        try await BiliAPI.shared.sendDanmaku(aid: aid, cid: cid, text: text, progressMs: Int(t * 1000), mode: mode, color: color)
+        // Slightly ahead so it enters from the edge instead of popping up mid-screen.
+        let d = Danmaku(time: t + 0.1, mode: mode, size: 25, color: color, text: text, mine: true)
+        let i = danmaku.firstIndex { $0.time > d.time } ?? danmaku.count
+        danmaku.insert(d, at: i)
+    }
+
     /// Keeps an answered poll / rating so it shows the result if it comes round again.
     func answer(_ item: InteractiveDm) {
         if let i = interactions.firstIndex(where: { $0.id == item.id }) { interactions[i] = item }

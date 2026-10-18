@@ -491,6 +491,7 @@ struct ControlsBar: View {
                     settings.danmakuOn.toggle()
                 }
                 DanmakuSettingsButton()
+                DanmakuSendButton(controller: controller)
                 ChromeIcon(icon: "chart.xyaxis.line", help: L("统计信息 I"), active: settings.showStats) { settings.showStats.toggle() }
                 VolumeBar(player: controller).padding(.horizontal, 4)
                 if let onMiniPlayer, mode == .normal {

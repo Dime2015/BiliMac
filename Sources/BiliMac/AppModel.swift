@@ -745,6 +745,11 @@ final class InputRouter {
             if featuredActive { model.featured.previous(); return nil }
             if let p { p.setVolume(p.player.volume + 0.1, feedback: true); return nil }
         case 49: if let p { p.togglePlay(); return nil }            // space
+        case 36, 76:                                                 // return: 发弹幕
+            if p != nil, !FloatingCenter.shared.isOpen {
+                NotificationCenter.default.post(name: .init("BiliMacComposeDanmaku"), object: nil)
+                return nil
+            }
         case 123: if let p { p.seek(by: -5); return nil }           // ←
         case 124: if let p { p.seek(by: 5); return nil }            // →
         case 53:                                                     // esc

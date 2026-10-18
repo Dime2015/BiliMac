@@ -13,6 +13,8 @@ struct Danmaku {
     var sender = ""
     /// bilibili's 0–10 quality weight (屏蔽等级 hides those below the level); 10 when the list doesn't say.
     var weight = 10
+    /// Sent from this app just now: drawn with a frame, like the official player.
+    var mine = false
 
     static func load(cid: Int) async throws -> [Danmaku] {
         var data = try await BiliAPI.shared.danmaku(cid: cid)
@@ -170,7 +172,7 @@ final class DanmakuEngine {
         let k = Key(count: list.count, first: list.first?.time ?? 0, width: size.width, height: size.height,
                     scale: s.danmakuScale, speed: s.danmakuSpeed, area: s.danmakuArea, filter: DanmakuFilter(s))
         guard k != key else { return }
-        if imageScale != s.danmakuScale { images.removeAll(); imageScale = s.danmakuScale }
+        if imageScale != s.danmakuScale || k.count != key?.count || k.first != key?.first { images.removeAll(); imageScale = s.danmakuScale }
         key = k
         let filter = DanmakuFilter.Compiled(k.filter)
         duration = 8 / max(s.danmakuSpeed, 0.25)
@@ -231,6 +233,12 @@ final class DanmakuEngine {
         let stroke: NSColor = isDark ? .white.withAlphaComponent(0.8) : .black.withAlphaComponent(0.75)
         str.draw(at: CGPoint(x: 2, y: 2), withAttributes: [.font: f, .strokeColor: stroke, .strokeWidth: 4])
         str.draw(at: CGPoint(x: 2, y: 2), withAttributes: [.font: f, .foregroundColor: c])
+        if d.mine {
+            let box = NSBezierPath(roundedRect: NSRect(x: 0.75, y: 0.75, width: sz.width + 2.5, height: sz.height + 2.5), xRadius: 3, yRadius: 3)
+            box.lineWidth = 1.5
+            NSColor(red: 0.98, green: 0.45, blue: 0.6, alpha: 1).setStroke()
+            box.stroke()
+        }
         NSGraphicsContext.restoreGraphicsState()
         let img = ctx.makeImage()
         images[i] = img
