@@ -39,6 +39,7 @@ BiliMac is written from scratch in SwiftUI — not a web wrapper. Playback goes 
 - Thumbnail previews while scrubbing
 - Heat curve on the progress bar, drawn from danmaku density, that shows the busiest moments (like YouTube's *Most replayed*). bilibili retired its official heat endpoint, so BiliMac computes it locally
 - Danmaku (bullet comments) with adjustable opacity, size, speed and area, plus filters like the official player's: by type (scrolling / top / bottom / colored), block level, and a keyword / regex / user block list you can import from your bilibili account. The settings button sits next to the danmaku toggle
+- Keep people clear: people in the picture are found on-device with Vision and danmaku pass behind them. Works on every video, not just the ones bilibili ships masks for
 - YouTube-style keyboard shortcuts (see below)
 
 **Quality and routes**

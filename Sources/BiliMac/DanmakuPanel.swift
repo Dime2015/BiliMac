@@ -50,6 +50,14 @@ struct DanmakuPanel: View {
                             .scaleEffect(0.9, anchor: .trailing)
                     }
                 }
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("防挡人物")).font(.system(size: 12.5, weight: .semibold))
+                        Text(L("弹幕从画面里的人身后穿过")).font(.system(size: 11)).foregroundStyle(Theme.text3)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $s.danmakuAvoidPeople).toggleStyle(PinkToggleStyle()).labelsHidden().fixedSize()
+                }
                 MenuDivider().padding(.horizontal, -6)
                 DanmakuFilterEditor(compact: true)
             }

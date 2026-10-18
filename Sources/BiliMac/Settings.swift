@@ -147,6 +147,8 @@ final class AppSettings: ObservableObject {
     @Published var danmakuBlockColor: Bool { didSet { d.set(danmakuBlockColor, forKey: "danmakuBlockColor") } }
     /// 屏蔽等级 0–10: hide danmaku whose weight is below this (0 = off).
     @Published var danmakuLevel: Int { didSet { d.set(danmakuLevel, forKey: "danmakuLevel") } }
+    /// 防挡弹幕: leave people in the picture uncovered.
+    @Published var danmakuAvoidPeople: Bool { didSet { d.set(danmakuAvoidPeople, forKey: "danmakuAvoidPeople") } }
     /// Rules: plain keyword, "/regex/", or "u:<sender hash>".
     @Published var danmakuBlocklist: [String] { didSet { d.set(danmakuBlocklist, forKey: "danmakuBlocklist") } }
     // 显示
@@ -200,6 +202,7 @@ final class AppSettings: ObservableObject {
         danmakuBlockColor = b("danmakuBlockColor", false)
         danmakuLevel = d.object(forKey: "danmakuLevel") == nil ? 0 : d.integer(forKey: "danmakuLevel")
         danmakuBlocklist = d.stringArray(forKey: "danmakuBlocklist") ?? []
+        danmakuAvoidPeople = b("danmakuAvoidPeople", true)
         showStats = b("showStats", false)
         showFeaturedInfo = b("showFeaturedInfo", true)
         chromeLayout = ChromeLayout(rawValue: d.string(forKey: "chromeLayout") ?? "") ?? .outside

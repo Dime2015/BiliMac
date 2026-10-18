@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Compression
 import SwiftUI
 
@@ -277,22 +278,47 @@ struct DanmakuOverlay: View {
     @ObservedObject var controller: PlayerController
     @ObservedObject var clock: PlaybackClock
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var masker: PersonMasker
     @State private var engine = DanmakuEngine()
 
     init(controller: PlayerController) {
         self.controller = controller
         self.clock = controller.clock
+        masker = controller.masker
     }
 
+    private var avoiding: Bool { settings.danmakuOn && settings.danmakuAvoidPeople && !controller.danmaku.isEmpty }
+
     var body: some View {
-        if settings.danmakuOn, !controller.danmaku.isEmpty {
-            TimelineView(.animation(minimumInterval: nil, paused: !clock.playing)) { _ in
-                Canvas { gc, size in
-                    engine.draw(&gc, size: size, time: controller.player.currentTime().seconds,
-                                list: controller.danmaku, settings: settings)
+        Group {
+            if settings.danmakuOn, !controller.danmaku.isEmpty {
+                TimelineView(.animation(minimumInterval: nil, paused: !clock.playing)) { _ in
+                    Canvas { gc, size in
+                        let _ = masker.version
+                        // Own layer, so cutting out the people only clears danmaku pixels.
+                        gc.drawLayer { layer in
+                            engine.draw(&layer, size: size, time: controller.player.currentTime().seconds,
+                                        list: controller.danmaku, settings: settings)
+                            if avoiding, let m = masker.mask {
+                                layer.opacity = 1
+                                layer.blendMode = .destinationOut
+                                layer.draw(Image(decorative: m, scale: 1), in: pictureRect(in: size))
+                            }
+                        }
+                    }
                 }
+                .allowsHitTesting(false)
             }
-            .allowsHitTesting(false)
         }
+        .onAppear { masker.setActive(avoiding) }
+        .onDisappear { masker.setActive(false) }
+        .onChange(of: avoiding) { _, on in masker.setActive(on) }
+    }
+
+    /// Where the picture sits inside the overlay (the layer letterboxes with resizeAspect).
+    private func pictureRect(in size: CGSize) -> CGRect {
+        let bounds = CGRect(origin: .zero, size: size)
+        guard let v = controller.video, v.width > 0, v.height > 0 else { return bounds }
+        return AVMakeRect(aspectRatio: CGSize(width: v.width, height: v.height), insideRect: bounds)
     }
 }

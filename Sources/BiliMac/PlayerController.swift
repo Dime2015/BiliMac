@@ -32,6 +32,8 @@ final class PlayerController: ObservableObject {
     @Published private(set) var danmaku: [Danmaku] = []
     /// Danmaku-density curve for the progress bar (0…1 per bin); empty when there's too little danmaku.
     @Published private(set) var heat: [Double] = []
+    /// People in the picture, for 防挡弹幕.
+    let masker = PersonMasker()
     @Published var rate: Float = 1 {
         didSet {
             player.defaultRate = rate
@@ -195,6 +197,7 @@ final class PlayerController: ObservableObject {
         audio = a
         let item = AVPlayerItem(url: url)
         item.preferredForwardBufferDuration = 30
+        masker.attach(item)
         itemObservers = [item.observe(\.status) { [weak self] it, _ in
             let st = it.status, err = it.error
             Task { @MainActor in
@@ -338,6 +341,7 @@ final class PlayerController: ObservableObject {
     private func teardownItem() {
         player.pause()
         player.replaceCurrentItem(with: nil)
+        masker.attach(nil)
         itemObservers.removeAll()
         tokens.forEach(NotificationCenter.default.removeObserver)
         tokens.removeAll()
