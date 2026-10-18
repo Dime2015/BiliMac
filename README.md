@@ -36,7 +36,7 @@ The bilibili website's "smart anti-occlusion" relies on masks bilibili precomput
 
 ![Decoding and quality settings](docs/screenshots/en-hl-codec.jpg)
 
-BiliMac isn't a web wrapper: playback goes straight through the system's AVPlayer and VideoToolbox hardware decoding. bilibili usually serves each video in AV1, HEVC and AVC; BiliMac lets you choose, and "Auto" prefers the formats **your Mac can decode in hardware**. Settings tells you whether this Mac hardware-decodes HEVC and AV1.
+BiliMac isn't a web wrapper: playback goes straight through the system's AVPlayer and VideoToolbox hardware decoding. bilibili usually serves each video in AV1, HEVC and AVC; BiliMac lets you choose, and "Auto" prefers the formats **your Mac can decode in hardware** (AV1 on M3 and later, otherwise HEVC). Settings tells you whether this Mac hardware-decodes HEVC and AV1.
 
 The same 4K video on an M3 Pro:
 

@@ -20,9 +20,10 @@ enum CodecPref: String, CaseIterable, Identifiable {
         let av1HW = VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1)
         switch self {
         case .auto:
+            // AV1 is the smallest stream for the same picture; use it whenever it's decoded in hardware (M3 and later).
             var o: [String] = []
-            if hevcHW { o += ["hvc1", "hev1"] }
             if av1HW { o += ["av01"] }
+            if hevcHW { o += ["hvc1", "hev1"] }
             o += ["avc1"]
             if !hevcHW { o += ["hvc1", "hev1"] }
             if !av1HW { o += ["av01"] }

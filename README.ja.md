@@ -36,7 +36,7 @@ bilibili Web 版の「スマート防遮挡」は、一部の人気動画向け�
 
 ![デコードと画質の設定](docs/screenshots/ja-hl-codec.jpg)
 
-BiliMac は Web ページのラッパーではなく、システムの AVPlayer と VideoToolbox のハードウェアデコードで直接再生します。bilibili は多くの動画を AV1・HEVC・AVC の 3 形式で配信しており、BiliMac ではそれを選べます。「自動」は**この Mac がハードウェアでデコードできる形式**を優先し、設定画面には HEVC / AV1 のハードウェアデコード対応状況が表示されます。
+BiliMac は Web ページのラッパーではなく、システムの AVPlayer と VideoToolbox のハードウェアデコードで直接再生します。bilibili は多くの動画を AV1・HEVC・AVC の 3 形式で配信しており、BiliMac ではそれを選べます。「自動」は**この Mac がハードウェアでデコードできる形式**を優先し（AV1 をハードウェアデコードできる M3 以降は AV1、それ以外は HEVC）、設定画面には HEVC / AV1 のハードウェアデコード対応状況が表示されます。
 
 同じ 4K 動画を M3 Pro で計測：
 

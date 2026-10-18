@@ -36,7 +36,7 @@ B 站网页版的「智能防挡弹幕」依赖服务器给部分热门视频预
 
 ![解码与画质设置](docs/screenshots/zh-Hans-hl-codec.jpg)
 
-BiliMac 不是网页套壳：播放直接走系统的 AVPlayer 和 VideoToolbox 硬件解码。同一个视频 B 站通常同时提供 AV1、HEVC、AVC 三种编码，BiliMac 让你选，默认「自动」优先选**你这台 Mac 能硬解**的格式；设置里会直接告诉你本机是否支持 HEVC / AV1 硬解。
+BiliMac 不是网页套壳：播放直接走系统的 AVPlayer 和 VideoToolbox 硬件解码。同一个视频 B 站通常同时提供 AV1、HEVC、AVC 三种编码，BiliMac 让你选，默认「自动」优先选**你这台 Mac 能硬解**的格式（能硬解 AV1 的 M3 及以后优先 AV1，否则 HEVC）；设置里会直接告诉你本机是否支持 HEVC / AV1 硬解。
 
 同一个 4K 视频在 M3 Pro 上实测：
 
