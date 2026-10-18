@@ -23,7 +23,7 @@ struct SettingsPage: View {
                     }
                     .buttonStyle(.pressable)
                     .padding(.horizontal, 12)
-                    .padding(.top, 40)
+                    .padding(.top, 34)
                     .padding(.bottom, 18)
                     Text(L("设置")).font(.system(size: 24, weight: .black)).padding(.horizontal, 12).padding(.bottom, 12)
                     ForEach(SettingsSection.allCases) { s in

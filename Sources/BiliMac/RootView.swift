@@ -82,6 +82,16 @@ struct RootView: View {
         }
         .frame(minWidth: 1040, minHeight: 640)
         .foregroundStyle(Theme.text)
+        .background(WindowAccessor())
+        .onChange(of: lightsPlacement, initial: true) { _, p in TrafficLights.shared.placement = p }
+    }
+
+    /// Where the window buttons go for the current layout.
+    private var lightsPlacement: TrafficLights.Placement {
+        if app.immersive { return .system }
+        if app.route == .settings { return .sidebar }
+        if app.route.usesRail { return settings.railAutoHide ? .system : .rail }
+        return .sidebar
     }
 
     @ViewBuilder private var toast: some View {
@@ -473,7 +483,9 @@ private struct IconRail: View {
     @Namespace private var ns
     var body: some View {
         VStack(spacing: 6) {
-            LogoMark(size: 32).padding(.top, 44).padding(.bottom, 14)
+            // 34 below the window top, like the sidebar's logo row: the same gap under the window buttons.
+            LogoMark(size: 32).padding(.top, 34).padding(.bottom, 14)
+
             RailIcon(icon: "house", label: L("首页"), selected: app.route == .home, ns: ns) { app.go(.home) }
             RailIcon(icon: "play.rectangle", label: L("精选"), selected: app.route == .featured, ns: ns) { app.go(.featured) }
             RailIcon(icon: "dot.radiowaves.left.and.right", label: L("动态"), selected: app.route == .dynamics, ns: ns) { app.go(.dynamics) }
