@@ -50,6 +50,13 @@ struct PlayInfo {
     }
 
     /// The next entry after `current` in `order` that this video has (for stepping down on stalls).
+    /// The entry just above `current` in `order` that this video has (nil at the top or off the list).
+    func nextHigher(than current: Int, order: [Int]) -> Int? {
+        let ids = Set(videos.map(\.id))
+        guard let i = order.firstIndex(of: current) else { return nil }
+        return order.prefix(i).last(where: ids.contains)
+    }
+
     func nextLower(after current: Int, order: [Int]) -> Int? {
         let ids = Set(videos.map(\.id))
         guard let i = order.firstIndex(of: current) else { return order.first { ids.contains($0) && $0 < current } }

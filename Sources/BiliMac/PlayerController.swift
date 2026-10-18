@@ -187,7 +187,10 @@ final class PlayerController: ObservableObject {
             }
         }
         ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sample() }
+            MainActor.assumeIsolated {
+                self?.sample()
+                self?.considerStepUp()
+            }
         }
     }
 
@@ -218,6 +221,9 @@ final class PlayerController: ObservableObject {
         startupTime = nil
         manualQuality = false
         stallTimes = []
+        lastStall = .distantPast
+        lastUpgrade = .distantPast
+        upgradeBackoff = 30
         startTS = Int(Date().timeIntervalSince1970)
         loadStarted = Date()
         clock.time = 0
@@ -349,18 +355,36 @@ final class PlayerController: ObservableObject {
     private var attachedAt = Date()
     private var lastSeek = Date.distantPast
 
-    /// Two stalls within 45 s, or one that lasts over 4 s, step the quality down one entry in the order.
-    /// Start-up and seeks into unbuffered video don't count.
+    /// Two real stalls (buffer run dry, over 1 s) within 60 s, or one that lasts over 4 s, step the quality
+    /// down one entry in the order. Start-up, seeks into unbuffered video and AVPlayer's momentary
+    /// "evaluating buffering rate" waits (every play / pause / speed change) don't count.
     private func waitingChanged(_ waiting: Bool) {
+        // Logged so stalls can be diagnosed from a run (why, how much buffer was left, link speed).
+        if waiting {
+            let reason = player.reasonForWaitingToPlay?.rawValue ?? "-"
+            log(String(format: "%@ waiting (%@) at %.1fs, buffer %.1fs, link %@", bvid, reason, clock.time,
+                       max(0, clock.buffered - clock.time), stream?.stats.segmentRate().map(formatBitrate) ?? "-"))
+        } else if stallStarted != .distantPast {
+            log(String(format: "%@ resumed after %.1fs", bvid, Date().timeIntervalSince(stallStarted)))
+        }
+        stallStarted = waiting ? Date() : .distantPast
         stallTask?.cancel()
         guard waiting, settings.autoDowngrade, !manualQuality, phase == .ready,
               Date().timeIntervalSince(attachedAt) > 3, Date().timeIntervalSince(lastSeek) > 6 else { return }
-        let now = Date()
-        stallTimes = stallTimes.filter { now.timeIntervalSince($0) < 45 } + [now]
-        if stallTimes.count >= 2 { stepDown(); return }
+        // Not a stall: AVPlayer re-evaluating after play / pause / speed changes (it reports "waiting" for a
+        // moment with plenty buffered), or a wait while more than a few seconds are still buffered.
+        if player.reasonForWaitingToPlay == .evaluatingBufferingRate { return }
+        if clock.buffered - clock.time > 3 { return }
         stallTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(4))
+            // A real stall lasts: count it after 1 s, step down if it reaches 4 s.
+            try? await Task.sleep(for: .seconds(1))
             guard let self, !Task.isCancelled, self.clock.waiting else { return }
+            let now = Date()
+            self.lastStall = now
+            self.stallTimes = self.stallTimes.filter { now.timeIntervalSince($0) < 60 } + [now]
+            if self.stallTimes.count >= 2 { self.stepDown(); return }
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, self.clock.waiting else { return }
             self.stepDown()
         }
     }
@@ -368,12 +392,45 @@ final class PlayerController: ObservableObject {
     private func stepDown() {
         guard let info, let cur = video?.id, Date().timeIntervalSince(lastDowngrade) > 15,
               let next = info.nextLower(after: cur, order: settings.qualityOrder) else { return }
+        // Stepping straight back down after an automatic step up: wait longer before the next try.
+        if Date().timeIntervalSince(lastUpgrade) < 60 { upgradeBackoff = min(upgradeBackoff * 2, 300) }
         lastDowngrade = Date()
         stallTimes = []
         log("\(bvid) stalls at \(shortQuality(cur)) → \(shortQuality(next))")
         switchQuality(next)
         if AppModel.shared.nowPlaying === self {
             AppModel.shared.notify(Lf("网络跟不上 %@，已切到 %@", "\(shortQuality(cur))", "\(qualityNames[next] ?? shortQuality(next))"))
+        }
+    }
+
+    // MARK: Stepping back up when the network recovers
+
+    private var lastStall = Date.distantPast
+    private var stallStarted = Date.distantPast
+    private var lastUpgrade = Date.distantPast
+    /// Seconds to wait after the last quality change before trying one step up (doubles after a failed try).
+    private var upgradeBackoff: Double = 30
+
+    /// Once a second: after an automatic step down, go one step back up the strategy's order when the
+    /// buffer is comfortable, nothing has stalled for a while, and the measured link speed has room for
+    /// the higher stream.
+    private func considerStepUp() {
+        guard settings.autoDowngrade, !manualQuality, phase == .ready, clock.playing, !clock.waiting,
+              let info, let cur = video?.id, let s = stream else { return }
+        let order = settings.qualityOrder
+        guard let up = info.nextHigher(than: cur, order: order) else { return }
+        let now = Date()
+        let sinceChange = now.timeIntervalSince(max(lastDowngrade, lastUpgrade, attachedAt))
+        guard sinceChange >= upgradeBackoff, now.timeIntervalSince(lastStall) > 30,
+              now.timeIntervalSince(lastSeek) > 10, clock.buffered - clock.time >= 20,
+              let link = s.stats.segmentRate() else { return }
+        let need = Double(info.pickVideo(qn: up, codec: settings.codec).bandwidth) * 1.5
+        guard link >= need else { return }
+        lastUpgrade = now
+        log("\(bvid) network ok (\(formatBitrate(link)) ≥ \(formatBitrate(need))): \(shortQuality(cur)) → \(shortQuality(up))")
+        switchQuality(up)
+        if AppModel.shared.nowPlaying === self {
+            AppModel.shared.notify(Lf("网络恢复，已切回 %@", "\(qualityNames[up] ?? shortQuality(up))"))
         }
     }
 

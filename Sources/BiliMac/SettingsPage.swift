@@ -226,8 +226,8 @@ private struct PlaybackSection: View {
             ToggleRow(title: L("杜比视界：按官方方式播放"),
                       subtitle: L("忽略杜比视界的动态元数据、按 HLG / HDR10 基础层播放，更亮，和官方客户端一致；关闭后由系统按杜比元数据适配屏幕"),
                       isOn: $s.dolbyVisionOfficial)
-            ToggleRow(title: L("卡顿时自动降一档"),
-                      subtitle: L("45 秒内卡顿两次，或一次缓冲超过 4 秒，就按上面的顺序降一档并提示；在播放器里手动选的画质不会被降"),
+            ToggleRow(title: L("卡顿时自动降档，恢复后升回"),
+                      subtitle: L("缓冲用完而卡住时才算卡顿：60 秒内卡两次（每次超过 1 秒），或一次超过 4 秒，就按上面的顺序降一档；之后 30 秒没再卡顿、缓冲超过 20 秒、实测网速够高一档的 1.5 倍时，再一档档升回去。暂停、继续、调倍速不会触发。在播放器里手动选的画质不会被自动改动"),
                       isOn: $s.autoDowngrade)
             Row(title: L("视频编码"),
                 subtitle: Lf("硬件解码：HEVC %@ · AV1 %@", "\(VTIsHardwareDecodeSupported(kCMVideoCodecType_HEVC) ? L("支持") : L("不支持"))", "\(VTIsHardwareDecodeSupported(kCMVideoCodecType_AV1) ? L("支持") : L("不支持"))")) {
