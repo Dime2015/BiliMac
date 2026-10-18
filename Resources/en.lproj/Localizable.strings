@@ -223,6 +223,9 @@
 "统计信息" = "Stats for nerds";
 "按 I 关闭" = "Press I to close";
 "近 60 秒 · 峰值 %@" = "Last 60 s · peak %@";
+"简介" = "Description";
+"%@ 粉丝" = "%@ followers";
+"%@ 点赞" = "%@ likes";
 "动态、历史记录、稍后再看和收藏夹" = "Following, History, Watch Later and Favorites";
 "动态" = "Following";
 "关注的 UP 主最新投稿" = "New videos from creators you follow";

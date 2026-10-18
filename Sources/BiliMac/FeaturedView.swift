@@ -19,6 +19,8 @@ struct FeaturedView: View {
     var fullBleed = false
     /// Title and actions stay up for the first seconds of every video, then follow the chrome.
     @State private var introUntil = Date.distantPast
+    /// The creator's total likes (from their space card), for the header card.
+    @State private var ownerLikes: (mid: Int, likes: Int)?
     @State private var introTick = 0
 
     var body: some View {
@@ -39,7 +41,8 @@ struct FeaturedView: View {
                                   onDoubleClick: { app.playerDoubleClick() },
                                   topInset: outside ? 0 : 44, trailingInset: showNext ? 280 : 0,
                                   header: outside ? header : nil, headerLeadingInset: lights,
-                                  barAccessory: outside ? AnyView(barActions) : nil) { chromeShown in
+                                  barAccessory: outside ? AnyView(barActions) : nil,
+                                  expandingHeader: outside, introHold: outside ? 4 : 0) { chromeShown in
                         if !outside { featuredOverlay(chromeShown: chromeShown, showNext: showNext) }
                     }
                     .id(ObjectIdentifier(c))
@@ -84,6 +87,11 @@ struct FeaturedView: View {
         .task { await feed.take() }
         .onAppear { newVideo() }
         .onChange(of: feed.current.map(ObjectIdentifier.init)) { newVideo() }
+        .task(id: actions.detail?.ownerMid) {
+            guard let mid = actions.detail?.ownerMid, mid > 0, ownerLikes?.mid != mid,
+                  let info = try? await BiliAPI.shared.space(mid: mid) else { return }
+            ownerLikes = (mid, info.likes)
+        }
     }
 
     private func newVideo() {
@@ -201,8 +209,21 @@ struct FeaturedView: View {
     /// Avatar · channel · title for the bar above the picture.
     private var header: PlayerHeader? {
         guard let item = feed.currentItem else { return nil }
-        return PlayerHeader(title: item.title, owner: item.owner, face: actions.detail?.ownerFace) { app.open(item) }
+        let d = actions.detail?.bvid == item.bvid ? actions.detail : nil
+        let mid = d?.ownerMid ?? item.ownerMid
+        return PlayerHeader(
+            title: item.title, owner: item.owner, face: d?.ownerFace ?? item.ownerFace,
+            onTap: { leavePlayerMode(); app.open(item) },
+            fans: d?.follower,
+            likes: ownerLikes.flatMap { $0.mid == mid ? $0.likes : nil },
+            following: d?.following,
+            onFollow: { actions.toggleFollow() },
+            onOwnerTap: mid.map { m in { leavePlayerMode(); app.go(.space(m)) } },
+            desc: d?.desc)
     }
+
+    private func leavePlayerMode() { if app.playerMode != .normal { app.exitPlayerMode() } }
+
 
     /// 精选's own controls, living in the bottom bar instead of floating over the picture.
     private var barActions: some View {

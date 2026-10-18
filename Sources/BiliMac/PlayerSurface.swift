@@ -37,6 +37,7 @@ final class PlayerChrome: ObservableObject {
     var hoveringControls = false { didSet { if hoveringControls { show() } else { schedule() } } }
     var hoveringSurface = false
     private var lastActivity = Date()
+    private var holdUntil = Date.distantPast
     private var task: Task<Void, Never>?
     private var playingSub: AnyCancellable?
     /// Play/pause changes count as activity (pausing shows the chrome, resuming starts the idle timer).
@@ -53,6 +54,13 @@ final class PlayerChrome: ObservableObject {
         lastActivity = Date()
         show()
         schedule()
+    }
+
+    /// Keep the chrome up for at least `secs` (a new video's intro).
+    func hold(_ secs: Double) {
+        holdUntil = Date().addingTimeInterval(secs)
+        show()
+        schedule(after: secs)
     }
 
     func pointerLeft() {
@@ -77,6 +85,8 @@ final class PlayerChrome: ObservableObject {
 
     private func evaluate() {
         if Env.pinChrome { return }
+        let held = holdUntil.timeIntervalSinceNow
+        if held > 0 { schedule(after: held + 0.05); return }
         let mustShow = !(clock?.playing ?? false) || (clock?.waiting ?? false) || hoveringControls || FloatingCenter.shared.isOpen
         if mustShow { schedule(); return }
         guard Date().timeIntervalSince(lastActivity) >= 2.4 else { schedule(after: 0.5); return }
@@ -109,9 +119,15 @@ struct PlayerSurface<Overlay: View>: View {
     var fitVideo = false
     /// Extra controls in the bottom bar (精选's like / coin / … buttons).
     var barAccessory: AnyView? = nil
+    /// Outside layout: the header opens into a card over the picture's top-left (avatar, follow,
+    /// counts, full title) while the chrome is up, and folds back into the black bar otherwise.
+    var expandingHeader = false
+    /// Seconds the chrome (and the header card) stays up when this surface appears.
+    var introHold: Double = 0
     @ViewBuilder var overlay: (Bool) -> Overlay
     @ObservedObject private var settings = AppSettings.shared
     @StateObject private var ui = PlayerChrome()
+    @Namespace private var headerNS
 
     var body: some View {
         Group {
@@ -123,10 +139,12 @@ struct PlayerSurface<Overlay: View>: View {
 
     // MARK: Outside layout — nothing covers the picture, so nothing needs to hide.
 
+    private var cardOpen: Bool { expandingHeader && header != nil && ui.visible }
+
     private var outsideBody: some View {
         VStack(spacing: 0) {
-            PlayerTopBar(controller: controller, leading: topLeading, header: header, leadingInset: headerLeadingInset,
-                         showStrip: settings.infoOverlay != .off)
+            PlayerTopBar(controller: controller, leading: topLeading, header: cardOpen ? nil : header, leadingInset: headerLeadingInset,
+                         showStrip: settings.infoOverlay != .off, ns: expandingHeader ? headerNS : nil)
             ZStack {
                 Color.black
                 PlayerPicture(controller: controller)
@@ -159,9 +177,27 @@ struct PlayerSurface<Overlay: View>: View {
                         onMiniPlayer: onMiniPlayer, accessory: barAccessory, solid: true)
         }
         .background(Color.black)
+        // Legibility scrim, then the card on top of it.
+        .overlay(alignment: .top) {
+            LinearGradient(colors: [.black.opacity(0.55), .black.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 170)
+                .padding(.top, 38)
+                .opacity(cardOpen ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+        .overlay(alignment: .topLeading) {
+            if cardOpen, let header {
+                PlayerHeaderCard(header: header, ns: headerNS)
+                    .onHover { ui.hoveringControls = $0 }
+                    .padding(.leading, 18).padding(.top, 38 + 14)
+                    .transition(.opacity)
+            }
+        }
+        .animation(cardOpen ? .spring(response: 0.45, dampingFraction: 0.86) : .easeInOut(duration: 0.45), value: cardOpen)
         .onAppear {
             ui.clock = controller.clock
             ui.activity()
+            if introHold > 0 { ui.hold(introHold) }
         }
         .animation(Motion.page, value: settings.showStats)
     }
@@ -274,20 +310,37 @@ struct PlayerHeader {
     let owner: String
     var face: URL? = nil
     var onTap: (() -> Void)? = nil
+    // For the expanded card.
+    var fans: Int? = nil
+    var likes: Int? = nil
+    /// nil = no follow button.
+    var following: Bool? = nil
+    var onFollow: (() -> Void)? = nil
+    var onOwnerTap: (() -> Void)? = nil
+    var desc: String? = nil
+}
+
+private extension View {
+    @ViewBuilder func matched(_ id: String, _ ns: Namespace.ID?) -> some View {
+        if let ns { matchedGeometryEffect(id: id, in: ns) } else { self }
+    }
 }
 
 /// Avatar · channel · title — top-left, away from burned-in subtitles.
 struct PlayerHeaderView: View {
     let header: PlayerHeader
+    var ns: Namespace.ID? = nil
     var body: some View {
         HStack(spacing: 8) {
-            if let face = header.face { Avatar(url: face, size: 22) }
+            if let face = header.face { Avatar(url: face, size: 22).matched("face", ns) }
             if !header.owner.isEmpty {
                 Text(header.owner).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
                     .fixedSize()
+                    .matched("owner", ns)
             }
             Button { header.onTap?() } label: {
                 Text(header.title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    .matched("title", ns)
             }
             .buttonStyle(.plain)
             .disabled(header.onTap == nil)
@@ -303,10 +356,11 @@ struct PlayerTopBar: View {
     let header: PlayerHeader?
     let leadingInset: CGFloat
     let showStrip: Bool
+    var ns: Namespace.ID? = nil
     var body: some View {
         HStack(spacing: 16) {
             if let leading { leading }
-            if let header { PlayerHeaderView(header: header).layoutPriority(0) }
+            if let header { PlayerHeaderView(header: header, ns: ns).layoutPriority(0) }
             Spacer(minLength: 12)
             if showStrip { InfoStrip(controller: controller, plain: true).layoutPriority(1) }
         }
@@ -859,5 +913,88 @@ private struct PictureSizing: ViewModifier {
     func body(content: Content) -> some View {
         if fit { content.aspectRatio(16 / 9, contentMode: .fit) }
         else { content.frame(maxWidth: .infinity, maxHeight: .infinity) }
+    }
+}
+
+/// The expanded header: avatar, channel, follow, counts and the full title, like the official app's
+/// feed card. Shares geometry with the one-line header so it grows out of / folds into the black bar.
+struct PlayerHeaderCard: View {
+    let header: PlayerHeader
+    let ns: Namespace.ID
+    @State private var showDesc = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Button { header.onOwnerTap?() } label: {
+                    Avatar(url: header.face, size: 48)
+                        .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                        .matchedGeometryEffect(id: "face", in: ns)
+                }
+                .buttonStyle(.pressable)
+                .disabled(header.onOwnerTap == nil)
+                .help(L("查看 UP 主主页"))
+                VStack(alignment: .leading, spacing: 3) {
+                    Button { header.onOwnerTap?() } label: {
+                        Text(header.owner).font(.system(size: 16, weight: .bold)).foregroundStyle(.white).lineLimit(1)
+                            .matchedGeometryEffect(id: "owner", in: ns)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(header.onOwnerTap == nil)
+                    if let counts {
+                        Text(counts).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                            .transition(.opacity)
+                    }
+                }
+                .fixedSize()
+                if let following = header.following {
+                    Button { header.onFollow?() } label: {
+                        Text(following ? L("已关注") : L("+ 关注"))
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(.white.opacity(following ? 0.75 : 1))
+                            .padding(.horizontal, 16).frame(height: 32)
+                            .background(following ? Color.white.opacity(0.18) : Theme.pink.opacity(0.85),
+                                        in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressable)
+                    .padding(.leading, 6)
+                }
+            }
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Button { header.onTap?() } label: {
+                    Text(header.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(.white)
+                        .lineLimit(2).multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .matchedGeometryEffect(id: "title", in: ns)
+                }
+                .buttonStyle(.plain)
+                .disabled(header.onTap == nil)
+                .help(L("打开视频页"))
+                if let d = header.desc, !d.isEmpty {
+                    Button { withAnimation(Motion.pop) { showDesc.toggle() } } label: {
+                        Image(systemName: "chevron.down").font(.system(size: 12, weight: .bold))
+                            .rotationEffect(.degrees(showDesc ? 180 : 0))
+                            .foregroundStyle(.white.opacity(0.8))
+                            .frame(width: 22, height: 22).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.pressable)
+                    .help(L("简介"))
+                }
+            }
+            if showDesc, let d = header.desc {
+                Text(d).font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.8)).lineSpacing(3)
+                    .lineLimit(6).fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .frame(maxWidth: 480, alignment: .leading)
+        .shadow(color: .black.opacity(0.55), radius: 8, y: 1)
+    }
+
+    private var counts: String? {
+        let parts = [header.fans.map { Lf("%@ 粉丝", formatCount($0)) }, header.likes.map { Lf("%@ 点赞", formatCount($0)) }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
