@@ -484,25 +484,15 @@ actor BiliAPI {
 
     /// An uploader's videos. order: "pubdate" (newest) or "click" (most played).
     func spaceVideos(mid: Int, order: String, page: Int) async throws -> (items: [VideoCard], more: Bool) {
-        if order == "pubdate" { return try await spaceArchives(mid: mid, page: page) }
+        if order == "pubdate" { let r = try await spaceArchives(mid: mid, page: page); return (r.items, r.more) }
         do {
             // The space search is the only one that sorts by plays. It wants the browser's WebGL fingerprint
             // fields and is quick to answer -352 / HTTP 412.
             let d = try await signedGet("https://api.bilibili.com/x/space/wbi/arc/search", [
-                "mid": "\(mid)", "ps": "30", "pn": "\(page)", "order": order, "platform": "web", "web_location": "1550101",
-                "dm_img_list": "[]", "dm_img_str": "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
-                "dm_cover_img_str": "QU5HTEUgKEFwcGxlLCBBcHBsZSBNMSwgT3BlbkdMIDQuMSlHb29nbGUgSW5jLiAoQXBwbGUp",
-                "dm_img_inter": #"{"ds":[],"wh":[0,0,0],"of":[0,0,0]}"#,
-            ])
-            let items: [VideoCard] = (d.obj("list")?.arr("vlist") ?? []).compactMap { v in
-                guard let bvid = v.str("bvid"), !bvid.isEmpty else { return nil }
-                return VideoCard(bvid: bvid, aid: v.int("aid"), title: plainTitle(v.str("title") ?? ""), cover: imageURL(v.str("pic")),
-                                 owner: v.str("author") ?? "", ownerMid: v.int("mid"), views: v.int("play"),
-                                 danmaku: v.int("video_review"), duration: parseDurationText(v.str("length")),
-                                 pubdate: v.int("created").map { Date(timeIntervalSince1970: TimeInterval($0)) })
-            }
+                "mid": "\(mid)", "ps": "30", "pn": "\(page)", "order": order,
+            ].merging(Self.spaceFingerprint) { a, _ in a })
             let total = d.obj("page")?.int("count") ?? 0
-            return (items, page * 30 < total)
+            return (Self.arcSearchItems(d), page * 30 < total)
         } catch {
             log("space \(mid) arc/search (\(order)) failed: \(error); sorting the archive list locally")
             guard page == 1 else { return ([], false) }
@@ -554,11 +544,106 @@ actor BiliAPI {
         return (items, page * 30 < (d.obj("page")?.int("total") ?? 0))
     }
 
+    /// The browser fingerprint fields `x/space/wbi/arc/search` wants next to its own parameters.
+    private static let spaceFingerprint = [
+        "platform": "web", "web_location": "1550101",
+        "dm_img_list": "[]", "dm_img_str": "V2ViR0wgMS4wIChPcGVuR0wgRVMgMi4wIENocm9taXVtKQ",
+        "dm_cover_img_str": "QU5HTEUgKEFwcGxlLCBBcHBsZSBNMSwgT3BlbkdMIDQuMSlHb29nbGUgSW5jLiAoQXBwbGUp",
+        "dm_img_inter": #"{"ds":[],"wh":[0,0,0],"of":[0,0,0]}"#,
+    ]
+
+    private static func arcSearchItems(_ d: JSON) -> [VideoCard] {
+        (d.obj("list")?.arr("vlist") ?? []).compactMap { v in
+            guard let bvid = v.str("bvid"), !bvid.isEmpty else { return nil }
+            return VideoCard(bvid: bvid, aid: v.int("aid"), title: plainTitle(v.str("title") ?? ""), cover: imageURL(v.str("pic")),
+                             owner: v.str("author") ?? "", ownerMid: v.int("mid"), views: v.int("play"),
+                             danmaku: v.int("video_review"), duration: parseDurationText(v.str("length")),
+                             pubdate: v.int("created").map { Date(timeIntervalSince1970: TimeInterval($0)) })
+        }
+    }
+
+    /// Search one uploader's videos. The space search also matches descriptions but is quick to answer
+    /// -352 / HTTP 412; the unsigned keyword list matches titles and is the fallback.
+    func spaceSearch(mid: Int, keyword: String, page: Int) async throws -> (items: [VideoCard], total: Int, more: Bool) {
+        do {
+            let d = try await signedGet("https://api.bilibili.com/x/space/wbi/arc/search", [
+                "mid": "\(mid)", "ps": "30", "pn": "\(page)", "order": "pubdate", "keyword": keyword,
+            ].merging(Self.spaceFingerprint) { a, _ in a })
+            let total = d.obj("page")?.int("count") ?? 0
+            return (Self.arcSearchItems(d), total, page * 30 < total)
+        } catch {
+            log("space \(mid) arc/search for a keyword failed: \(error); trying the keyword list")
+            do {
+                let r = try await spaceArchives(mid: mid, page: page, keywords: keyword)
+                return (r.items, r.total, r.more)
+            } catch {
+                log("space \(mid) keyword list failed: \(error); matching titles of recent uploads")
+                guard page == 1 else { return ([], 0, false) }
+                var all: [VideoCard] = []
+                for p in 1...5 {
+                    let r = try await spaceArchives(mid: mid, page: p)
+                    all += r.items
+                    if !r.more { break }
+                }
+                let hits = all.filter { $0.title.localizedCaseInsensitiveContains(keyword) }
+                return (hits, hits.count, false)
+            }
+        }
+    }
+
+    /// The video an uploader pinned to the top of their space, if any (53016 when there is none).
+    func spaceTopVideo(mid: Int) async -> VideoCard? {
+        guard let d = try? await get("https://api.bilibili.com/x/space/top/arc", ["vmid": "\(mid)"]) else { return nil }
+        return VideoCard.archive(d)
+    }
+
+    /// An uploader's 动态, pinned one first, then newest first.
+    func spaceDynamics(mid: Int, offset: String?) async throws -> (items: [SpaceDynamic], offset: String?, more: Bool) {
+        // Unsigned it is quick to answer -352, so sign it (WBI) like the website. Risk control also answers
+        // "code 0, no items, no more" now and then (always for an empty `offset=`): retry that a few times.
+        var p = ["host_mid": "\(mid)", "features": "itemOpusStyle", "timezone_offset": "-480", "web_location": "333.1387"]
+        if let offset, !offset.isEmpty { p["offset"] = offset }
+        var d: JSON = [:]
+        for attempt in 0..<6 {
+            if attempt > 0 { try await Task.sleep(for: .milliseconds(500 * attempt)) }
+            d = try await spaceGet(mid: mid, "https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space", p, signed: true)
+            if !d.arr("items").isEmpty || d.bool("has_more") == true { break }
+            log("space \(mid) dynamics: empty answer (attempt \(attempt + 1))")
+        }
+        let items = d.arr("items").compactMap(SpaceDynamic.parse)
+        // Past the first page an empty answer is the refusal, not the end: offer 重试 instead of "no more".
+        if items.isEmpty, let offset, !offset.isEmpty { throw APIError(description: L("动态加载失败，请重试")) }
+        return (items, d.str("offset"), d.bool("has_more") ?? false)
+    }
+
+    /// Search an uploader's 动态 (an older endpoint: each card is a JSON string in the legacy shape).
+    func spaceDynamicSearch(mid: Int, keyword: String, page: Int) async throws -> (items: [SpaceDynamic], total: Int, more: Bool) {
+        let d = try await spaceGet(mid: mid, "https://api.bilibili.com/x/space/dynamic/search",
+                                   ["mid": "\(mid)", "keyword": keyword, "pn": "\(page)", "ps": "20", "platform": "web"])
+        let total = d.int("total") ?? 0
+        return (d.arr("cards").compactMap(SpaceDynamic.parseLegacy), total, page * 20 < total)
+    }
+
+    /// GET as the uploader's space page would send it, with space.bilibili.com/<mid>/dynamic as the Referer
+    /// (the 动态 endpoints answer -352 more readily without it).
+    private func spaceGet(mid: Int, _ base: String, _ params: [String: String], signed: Bool = false) async throws -> JSON {
+        var c = URLComponents(string: base)!
+        c.queryItems = params.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        let url = signed ? try await signedURL(base, params) : c.url!
+        var r = request(url)
+        r.setValue("https://space.bilibili.com/\(mid)/dynamic", forHTTPHeaderField: "Referer")
+        let (data, resp) = try await session.data(for: r)
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? JSON else {
+            throw APIError(description: Lf("接口返回异常（HTTP %@）", "\((resp as? HTTPURLResponse)?.statusCode ?? 0)"))
+        }
+        return try check(obj, url.path)
+    }
+
     /// Newest-first archive list; no signature. Rate limits (HTTP 412) come and go per device ID and IP,
     /// so try without cookies, then with them, before giving up.
-    private func spaceArchives(mid: Int, page: Int) async throws -> (items: [VideoCard], more: Bool) {
+    private func spaceArchives(mid: Int, page: Int, keywords: String = "") async throws -> (items: [VideoCard], more: Bool, total: Int) {
         let base = "https://api.bilibili.com/x/series/recArchivesByKeywords"
-        let params = ["mid": "\(mid)", "keywords": "", "ps": "30", "pn": "\(page)"]
+        let params = ["mid": "\(mid)", "keywords": keywords, "ps": "30", "pn": "\(page)"]
         let d: JSON
         do {
             d = try await anonymousGet(base, params)
@@ -573,7 +658,8 @@ actor BiliAPI {
             }
         }
         let items = d.arr("archives").compactMap(VideoCard.archive)
-        return (items, page * 30 < (d.obj("page")?.int("total") ?? 0))
+        let total = d.obj("page")?.int("total") ?? 0
+        return (items, page * 30 < total, total)
     }
 
     /// mode 3 = 热门, 2 = 最新.
