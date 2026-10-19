@@ -89,7 +89,7 @@ struct UpNextDock: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(card.title).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
                             if !card.owner.isEmpty {
-                                Text(card.owner).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                                OwnerLink(name: card.owner, mid: card.ownerMid, font: .system(size: 11), color: .white.opacity(0.55), hoverColor: .white)
                             }
                         }
                         .foregroundStyle(.white)

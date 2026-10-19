@@ -392,12 +392,22 @@ struct PlayerHeaderView: View {
     }
     var body: some View {
         HStack(spacing: 8) {
-            if let face = header.face { Avatar(url: face, size: counts == nil ? 22 : 26).matched("face", ns) }
+            if let face = header.face {
+                Button { header.onOwnerTap?() } label: { Avatar(url: face, size: counts == nil ? 22 : 26) }
+                    .buttonStyle(.plain)
+                    .disabled(header.onOwnerTap == nil)
+                    .matched("face", ns)
+            }
             if !header.owner.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(header.owner).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
-                        .fixedSize()
-                        .matched("owner", ns)
+                    Button { header.onOwnerTap?() } label: {
+                        Text(header.owner).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                            .fixedSize()
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(header.onOwnerTap == nil)
+                    .help(header.onOwnerTap == nil ? "" : L("查看 UP 主主页"))
+                    .matched("owner", ns)
                     // 粉丝 · 点赞 under the channel name, as on the expanded card.
                     if let counts {
                         Text(counts).font(.system(size: 10, weight: .medium)).monospacedDigit()

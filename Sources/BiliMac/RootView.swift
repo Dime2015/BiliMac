@@ -587,7 +587,8 @@ struct NowPlayingBar: View {
                     Text(app.nowCard?.title ?? "").font(.system(size: 14, weight: .medium)).lineLimit(1)
                 }
                 .buttonStyle(.pressable)
-                Text(app.nowCard?.owner ?? "").font(.system(size: 12)).foregroundStyle(Theme.text2).lineLimit(1)
+                OwnerLink(name: app.nowCard?.owner ?? "", mid: app.nowCard?.ownerMid ?? app.nowDetail?.ownerMid,
+                          font: .system(size: 12), color: Theme.text2)
             }
             Button { actions.toggleLike() } label: {
                 Image(systemName: actions.relation.like ? "hand.thumbsup.fill" : "hand.thumbsup")

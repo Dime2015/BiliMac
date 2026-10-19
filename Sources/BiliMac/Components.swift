@@ -255,9 +255,42 @@ struct ProgressLine: View {
 }
 
 /// Grid card: cover with shadow, hover reveals a pink play button.
+/// A channel name that opens the creator's page. Works inside a card's button: the tap is the name's own.
+struct OwnerLink: View {
+    let name: String
+    let mid: Int?
+    var font: Font = .system(size: 12.5)
+    var color: Color = Theme.meta
+    var hoverColor: Color = Theme.text
+    @State private var hover = false
+
+    var body: some View {
+        if let mid, mid > 0, !name.isEmpty {
+            // Its own button: nested in a card's button, the inner one takes the click.
+            Button { AppModel.shared.go(.space(mid)) } label: {
+                Text(name)
+                    .font(font)
+                    .foregroundStyle(hover ? hoverColor : color)
+                    .underline(hover)
+                    .lineLimit(1)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { inside in
+                hover = inside
+                if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+            }
+            .help(L("查看 UP 主主页"))
+        } else {
+            Text(name).font(font).foregroundStyle(color).lineLimit(1)
+        }
+    }
+}
+
 struct ShelfCard: View {
     let card: VideoCard
-    var meta: String?
+    /// 排行榜 position, shown before the channel.
+    var rank: Int? = nil
     @State private var hover = false
 
     var body: some View {
@@ -287,10 +320,15 @@ struct ShelfCard: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
                 .foregroundStyle(Theme.text)
-            Text(meta ?? defaultMeta)
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.meta)
-                .lineLimit(1)
+            // reason · channel (a link) · plays · date
+            HStack(spacing: 0) {
+                if let lead = metaLead { Text(lead + " · ").fixedSize() }
+                OwnerLink(name: card.owner, mid: card.ownerMid).layoutPriority(1)
+                if let tail = metaTail { Text((card.owner.isEmpty ? "" : " · ") + tail).lineLimit(1) }
+            }
+            .font(.system(size: 12.5))
+            .foregroundStyle(Theme.meta)
+            .lineLimit(1)
         }
         .padding(10)
         .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 8))
@@ -298,12 +336,18 @@ struct ShelfCard: View {
         .onHover { h in withAnimation(Motion.pop) { hover = h } }
     }
 
-    private var defaultMeta: String {
-        var parts = [card.owner]
-        if let r = card.reason { parts = [r] + parts }
+    private var metaLead: String? {
+        if let rank { return "No.\(rank)" }
+        return card.reason.flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private var metaTail: String? {
+        var parts: [String] = []
         if let v = card.views { parts.append(Lf("%@ 播放", "\(formatCount(v))")) }
-        if let d = card.viewedAt { parts.append(formatRelativeDate(d)) } else if let d = card.pubdate { parts.append(formatRelativeDate(d)) }
-        return parts.filter { !$0.isEmpty }.joined(separator: " · ")
+        if rank == nil {
+            if let d = card.viewedAt { parts.append(formatRelativeDate(d)) } else if let d = card.pubdate { parts.append(formatRelativeDate(d)) }
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 

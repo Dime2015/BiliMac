@@ -375,8 +375,10 @@ private struct RelatedRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(card.title).font(.system(size: 13)).lineLimit(2).lineSpacing(1)
                 Spacer(minLength: 0)
-                Text(Lf("%@ · %@ 播放", "\(card.owner)", "\(formatCount(card.views))")).font(.system(size: 11.5)).foregroundStyle(Theme.meta)
-                    .lineLimit(1)
+                HStack(spacing: 0) {
+                    OwnerLink(name: card.owner, mid: card.ownerMid, font: .system(size: 11.5))
+                    Text(" · " + Lf("%@ 播放", "\(formatCount(card.views))")).font(.system(size: 11.5)).foregroundStyle(Theme.meta).lineLimit(1)
+                }
             }
             .frame(height: 68, alignment: .topLeading)
             Spacer(minLength: 0)

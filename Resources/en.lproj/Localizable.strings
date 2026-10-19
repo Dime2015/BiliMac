@@ -81,6 +81,7 @@
 "：" = ": ";
 "登录后参与评论" = "Sign in to comment";
 "发布" = "Post";
+"查看 UP 主主页" = "View creator's page";
 "%@ 播放" = "%@ views";
 "已看完" = "Watched";
 "剩余 %@ 小时 %@ 分" = "%@ h %@ min left";
@@ -88,7 +89,6 @@
 "打开" = "Open";
 "在底部播放" = "Play in Mini Player";
 "添加到稍后再看" = "Add to Watch Later";
-"查看 UP 主主页" = "View creator's page";
 "从列表中移除" = "Remove from List";
 "复制链接" = "Copy Link";
 "在浏览器中打开" = "Open in Browser";
@@ -159,7 +159,6 @@
 "自动连播 %@" = "Autoplay %@";
 "开" = "On";
 "关" = "Off";
-"%@ · %@ 播放" = "%1$@ · %2$@ views";
 "精选加载失败" = "Couldn’t load Featured";
 "重试" = "Retry";
 "精选" = "Featured";
@@ -219,7 +218,6 @@
 "当下热门" = "Trending Now";
 "全站排行" = "Top Charts";
 "这里还没有内容" = "Nothing here yet";
-"No.%@ · %@ · %@ 播放" = "No.%1$@ · %2$@ · %3$@ views";
 "没有更多了" = "That’s everything";
 "%@%@ 个视频" = "%@%@ videos";
 "刷新 ⌘R" = "Refresh ⌘R";

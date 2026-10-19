@@ -78,7 +78,7 @@ struct ShelfGrid: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 214, maximum: 330), spacing: 8, alignment: .top)], alignment: .leading, spacing: 8) {
                 ForEach(Array(list.items.enumerated()), id: \.element.id) { i, card in
                     Button { app.open(card) } label: {
-                        ShelfCard(card: card, meta: ranked ? Lf("No.%@ · %@ · %@ 播放", "\(i + 1)", "\(card.owner)", "\(formatCount(card.views))") : nil)
+                        ShelfCard(card: card, rank: ranked ? i + 1 : nil)
                     }
                     .buttonStyle(.pressableCard)
                     .entrance(i, id: card.id, list: list)

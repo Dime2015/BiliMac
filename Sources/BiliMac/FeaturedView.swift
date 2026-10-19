@@ -158,7 +158,8 @@ struct FeaturedView: View {
                     Text(String(item.owner.prefix(1))).font(.system(size: 13, weight: .bold))
                         .frame(width: 34, height: 34).background(Color(hex: 0x3D5A73), in: Circle())
                 }
-                Text(item.owner).font(.system(size: 15, weight: .bold))
+                OwnerLink(name: item.owner, mid: actions.detail?.ownerMid ?? item.ownerMid, font: .system(size: 15, weight: .bold),
+                          color: .white, hoverColor: .white)
                 if let d = actions.detail {
                     Button(d.following ? L("已关注") : L("关注")) { actions.toggleFollow() }
                         .buttonStyle(.pressable)
