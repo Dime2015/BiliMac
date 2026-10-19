@@ -385,13 +385,25 @@ private extension View {
 struct PlayerHeaderView: View {
     let header: PlayerHeader
     var ns: Namespace.ID? = nil
+
+    private var counts: String? {
+        let parts = [header.fans.map { Lf("%@ 粉丝", formatCount($0)) }, header.likes.map { Lf("%@ 点赞", formatCount($0)) }].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
     var body: some View {
         HStack(spacing: 8) {
-            if let face = header.face { Avatar(url: face, size: 22).matched("face", ns) }
+            if let face = header.face { Avatar(url: face, size: counts == nil ? 22 : 26).matched("face", ns) }
             if !header.owner.isEmpty {
-                Text(header.owner).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
-                    .fixedSize()
-                    .matched("owner", ns)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(header.owner).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white.opacity(0.65)).lineLimit(1)
+                        .fixedSize()
+                        .matched("owner", ns)
+                    // 粉丝 · 点赞 under the channel name, as on the expanded card.
+                    if let counts {
+                        Text(counts).font(.system(size: 10, weight: .medium)).monospacedDigit()
+                            .foregroundStyle(.white.opacity(0.42)).lineLimit(1).fixedSize()
+                    }
+                }
             }
             Button { header.onTap?() } label: {
                 Text(header.title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
