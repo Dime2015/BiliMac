@@ -8,6 +8,9 @@ struct FeaturedView: View {
     @ObservedObject private var settings = AppSettings.shared
     @State private var showFav = false
     @State private var showCoin = false
+    /// Comments in a panel on the right (the picture shrinks to make room).
+    @State private var showComments = false
+    @StateObject private var comments = CommentsModel()
     /// 「接下来」: shown briefly for each new video, then tucked away until the pointer reaches the right edge.
     /// 「接下来」: a small strip when a video starts, full list while hovered, hidden when left alone.
     enum NextState { case hidden, compact, expanded }
@@ -27,59 +30,67 @@ struct FeaturedView: View {
         GeometryReader { g in
             let wide = g.size.width > 980
             let placeholder = !fullBleed && app.playerMode != .normal
-            let nextOn = wide && !placeholder
+            let nextOn = wide && !placeholder && !showComments
             let outside = settings.chromeLayout == .outside
             let showNext = nextOn && nextState == .expanded && !outside
             let lights = (fullBleed ? app.playerMode == .appFull : settings.railAutoHide) ? 64.0 : 0.0
-            ZStack {
-                Color(hex: 0x0B0B0B)
-                if placeholder {
-                    Color.black
-                } else if let c = feed.current {
-                    PlayerSurface(controller: c, chrome: .full, mode: app.playerMode,
-                                  onAppFull: { app.toggleAppFull() }, onScreenFull: { app.toggleScreenFull() },
-                                  onDoubleClick: { app.playerDoubleClick() },
-                                  topInset: outside ? 0 : 44, trailingInset: showNext ? 280 : 0,
-                                  header: outside ? header : nil, headerLeadingInset: lights,
-                                  barAccessory: outside ? AnyView(barActions) : nil,
-                                  expandingHeader: outside, introHold: outside ? 4 : 0) { chromeShown in
-                        if !outside { featuredOverlay(chromeShown: chromeShown, showNext: showNext) }
-                    }
-                    .id(ObjectIdentifier(c))
-                    .transition(.asymmetric(
-                        insertion: .move(edge: feed.direction > 0 ? .bottom : .top),
-                        removal: .move(edge: feed.direction > 0 ? .top : .bottom)
-                            .combined(with: .scale(scale: 0.9))
-                            .combined(with: .opacity)))
-                } else if let e = feed.error {
-                    VStack(spacing: 12) {
-                        Text(L("精选加载失败")).font(.system(size: 18, weight: .bold))
-                        Text(e).foregroundStyle(Theme.text2)
-                        PillButton(title: L("重试"), filled: true, tint: .white) { Task { await feed.take() } }
-                    }
-                } else {
-                    ProgressView().controlSize(.large).tint(.white)
-                }
-
-                if nextOn && nextState != .hidden {
-                    upNext(expanded: nextState == .expanded, top: outside ? 50 : 92, bottom: outside ? 84 : 16)
-                        .onHover { inside in
-                            nextHover = inside
-                            if inside { setNext(.expanded) } else { setNext(.compact, hideAfter: 2.5) }
+            HStack(spacing: 0) {
+                ZStack {
+                    Color(hex: 0x0B0B0B)
+                    if placeholder {
+                        Color.black
+                    } else if let c = feed.current {
+                        PlayerSurface(controller: c, chrome: .full, mode: app.playerMode,
+                                      onAppFull: { app.toggleAppFull() }, onScreenFull: { app.toggleScreenFull() },
+                                      onDoubleClick: { app.playerDoubleClick() },
+                                      topInset: outside ? 0 : 44, trailingInset: showNext ? 280 : 0,
+                                      header: outside ? header : nil, headerLeadingInset: lights,
+                                      barAccessory: outside ? AnyView(barActions) : nil,
+                                      expandingHeader: outside, introHold: outside ? 4 : 0) { chromeShown in
+                            if !outside { featuredOverlay(chromeShown: chromeShown, showNext: showNext) }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .id(ObjectIdentifier(c))
+                        .transition(.asymmetric(
+                            insertion: .move(edge: feed.direction > 0 ? .bottom : .top),
+                            removal: .move(edge: feed.direction > 0 ? .top : .bottom)
+                                .combined(with: .scale(scale: 0.9))
+                                .combined(with: .opacity)))
+                    } else if let e = feed.error {
+                        VStack(spacing: 12) {
+                            Text(L("精选加载失败")).font(.system(size: 18, weight: .bold))
+                            Text(e).foregroundStyle(Theme.text2)
+                            PillButton(title: L("重试"), filled: true, tint: .white) { Task { await feed.take() } }
+                        }
+                    } else {
+                        ProgressView().controlSize(.large).tint(.white)
+                    }
+
+                    if nextOn && nextState != .hidden {
+                        upNext(expanded: nextState == .expanded, top: outside ? 50 : 92, bottom: outside ? 84 : 16)
+                            .onHover { inside in
+                                nextHover = inside
+                                if inside { setNext(.expanded) } else { setNext(.compact, hideAfter: 2.5) }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                    } else if nextOn {
+                        // Right-edge hot zone: reaching for it opens the full list.
+                        Color.clear
+                            .frame(width: 28)
+                            .contentShape(Rectangle())
+                            .onHover { if $0 { setNext(.expanded) } }
+                            .padding(.top, 60).padding(.bottom, 110)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    }
+                }
+                .animation(Motion.page, value: nextState)
+                if showComments && !placeholder {
+                    commentsPanel
+                        .frame(width: min(420, max(320, g.size.width * 0.32)))
                         .transition(.move(edge: .trailing).combined(with: .opacity))
-                } else if nextOn {
-                    // Right-edge hot zone: reaching for it opens the full list.
-                    Color.clear
-                        .frame(width: 28)
-                        .contentShape(Rectangle())
-                        .onHover { if $0 { setNext(.expanded) } }
-                        .padding(.top, 60).padding(.bottom, 110)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                 }
             }
-            .animation(Motion.page, value: nextState)
+            .animation(Motion.page, value: showComments)
             .clipShape(RoundedRectangle(cornerRadius: fullBleed ? 0 : 10, style: .continuous))
             .animation(.spring(response: 0.42, dampingFraction: 0.84), value: feed.current.map(ObjectIdentifier.init))
         }
@@ -87,6 +98,12 @@ struct FeaturedView: View {
         .task { await feed.take() }
         .onAppear { newVideo() }
         .onChange(of: feed.current.map(ObjectIdentifier.init)) { newVideo() }
+        // Comments follow the video being played, fetched only while the panel is open.
+        .task(id: showComments ? actions.detail?.aid : nil) {
+            guard showComments, let d = actions.detail, d.bvid == feed.currentItem?.bvid else { return }
+            comments.reset(aid: d.aid, upMid: d.ownerMid, total: d.stat.reply)
+            if comments.comments.isEmpty && !comments.end { await comments.reload() }
+        }
         .task(id: actions.detail?.ownerMid) {
             guard let mid = actions.detail?.ownerMid, mid > 0, ownerLikes?.mid != mid,
                   let info = try? await BiliAPI.shared.space(mid: mid) else { return }
@@ -202,8 +219,22 @@ struct FeaturedView: View {
                 if app.account.loggedIn { showFav = true } else { app.showLogin = true }
             }
             .floatingPanel(id: "fav-featured", isPresented: $showFav, placement: .left) { FavPopover(actions: actions) { showFav = false } }
+            RoundAction(icon: showComments ? "bubble.right.fill" : "bubble.right", text: s.map { formatCount($0.reply) } ?? L("评论"),
+                        active: showComments) { showComments.toggle() }
             RoundAction(icon: "text.badge.plus", text: L("稍后看"), active: false) { actions.watchLater() }
         }
+    }
+
+    private var commentsPanel: some View {
+        ScrollView {
+            CommentsSection(model: comments) { showComments = false }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+        }
+        .scrollIndicators(.automatic)
+        .background(Color(hex: 0x141414))
+        .overlay(alignment: .leading) { Rectangle().fill(.white.opacity(0.08)).frame(width: 1) }
+        .foregroundStyle(.white)
     }
 
     /// Avatar · channel · title for the bar above the picture.
@@ -252,6 +283,8 @@ struct FeaturedView: View {
                 if app.account.loggedIn { withAnimation(Motion.pop) { showFav.toggle() } } else { app.showLogin = true }
             }
             .floatingPanel(id: "fav-bar", isPresented: $showFav, placement: .above(.center)) { FavPopover(actions: actions) { showFav = false } }
+            BarAction(icon: showComments ? "bubble.right.fill" : "bubble.right", help: L("评论"),
+                      count: s.map { formatCount($0.reply) }, active: showComments) { showComments.toggle() }
             if extras {
                 BarAction(icon: "text.badge.plus", help: L("稍后看")) { actions.watchLater() }
                 Text("\(feed.index + 1) / \(feed.items.count)").font(.system(size: 11, design: .monospaced))
