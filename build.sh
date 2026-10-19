@@ -28,6 +28,11 @@ APP=build/BiliMac.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/BiliMac"
+# SwiftPM records the deployment target (14.0) as the SDK the binary was built against, and macOS then
+# runs the app in compatibility mode: the old, smaller window buttons and none of the current system
+# look. Record the SDK actually used; the minimum system stays 14.0.
+SDK=$(xcrun --show-sdk-version)
+vtool -set-build-version macos 14.0 "$SDK" -replace -output "$APP/Contents/MacOS/BiliMac" "$APP/Contents/MacOS/BiliMac" 2>/dev/null
 cp Resources/AppIcon.icns Resources/Logo.png "$APP/Contents/Resources/"
 cp -R Resources/*.lproj "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
