@@ -948,10 +948,13 @@ private struct SpaceHeader: View {
                         }
                     }
                     .font(.system(size: 13, weight: .bold))
-                    Text(i?.name ?? " ")
-                        .font(.system(size: 40, weight: .black))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
+                    HStack(spacing: 12) {
+                        Text(i?.name ?? " ")
+                            .font(.system(size: 40, weight: .black))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        LiveBadge(uid: model.mid, large: true)
+                    }
                 }
                 Spacer(minLength: 12)
                 if let i {

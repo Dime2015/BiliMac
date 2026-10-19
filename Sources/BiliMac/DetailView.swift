@@ -288,14 +288,17 @@ private struct SidePanel: View {
                             .buttonStyle(.pressable)
                         }
                         .padding(.top, -38)
-                        Button { app.go(.space(d.ownerMid)) } label: {
-                            HStack(spacing: 4) {
-                                Text(d.ownerName).font(.system(size: 16, weight: .bold)).lineLimit(1)
-                                Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.text3)
+                        HStack(spacing: 8) {
+                            Button { app.go(.space(d.ownerMid)) } label: {
+                                HStack(spacing: 4) {
+                                    Text(d.ownerName).font(.system(size: 16, weight: .bold)).lineLimit(1)
+                                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.text3)
+                                }
                             }
+                            .buttonStyle(.pressable)
+                            .help(L("查看 UP 主主页"))
+                            LiveBadge(uid: d.ownerMid)
                         }
-                        .buttonStyle(.pressable)
-                        .help(L("查看 UP 主主页"))
                         Text(Lf("%@ 粉丝 · %@ 投稿", "\(formatCount(d.follower))", "\(formatCount(d.archiveCount))"))
                             .font(.system(size: 12.5)).foregroundStyle(Theme.text2)
                     }

@@ -160,6 +160,7 @@ struct FeaturedView: View {
                 }
                 OwnerLink(name: item.owner, mid: actions.detail?.ownerMid ?? item.ownerMid, font: .system(size: 15, weight: .bold),
                           color: .white, hoverColor: .white)
+                LiveBadge(uid: actions.detail?.ownerMid ?? item.ownerMid)
                 if let d = actions.detail {
                     Button(d.following ? L("已关注") : L("关注")) { actions.toggleFollow() }
                         .buttonStyle(.pressable)

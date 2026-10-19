@@ -192,6 +192,11 @@
 "弹幕 D" = "Danmaku  D";
 "屏幕全屏 F" = "Full Screen  F";
 "发个弹幕" = "Say something";
+"进入直播间" = "Open the live room";
+"进入直播间：%@" = "Open the live room: %@";
+"%@ 位关注的主播正在直播" = "%@ people you follow are live";
+"正在直播" = "Live now";
+"直播" = "Live";
 "[表情]" = "[Sticker]";
 "[分享]" = "[Shared]";
 "[图片]" = "[Image]";
@@ -346,7 +351,6 @@
 "综合" = "All";
 "番剧" = "Anime";
 "影视" = "Films & TV";
-"直播" = "Live";
 "专栏" = "Articles";
 "用户" = "Users";
 "综合排序" = "Best match";
@@ -360,7 +364,6 @@
 "没有找到相关用户" = "No users found";
 "没有找到相关专栏" = "No articles found";
 "没有找到相关内容" = "Nothing found";
-"进入直播间" = "Open the live room";
 "%@粉丝" = "%@ followers";
 "%@个视频" = "%@ videos";
 "查看TA的所有稿件" = "See all their videos";

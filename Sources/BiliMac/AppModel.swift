@@ -368,6 +368,7 @@ final class AppModel: ObservableObject {
             favFolders = []
             MessageCenter.shared.stop()
         }
+        if account.loggedIn || LiveNowCenter.testUIDs != nil { LiveNowCenter.shared.startPolling() } else { LiveNowCenter.shared.stop() }
     }
 
     func didLogin() async {

@@ -117,6 +117,8 @@ struct ListPage: View {
     var emptyText = L("这里还没有内容")
     var removeAction: ((VideoCard) -> Void)? = nil
     var tint: Color = Theme.tint(hex: 0x2B3D4F, light: 0xDCE8F2)
+    /// Between the title and the grid (动态: who's live).
+    var accessory: AnyView? = nil
 
     var body: some View {
         let list = app.list(for: key)
@@ -124,6 +126,7 @@ struct ListPage: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     PageHeader(kicker: kicker, title: title, subtitle: subtitle, list: list)
+                    if let accessory { accessory }
                     ShelfGrid(list: list, emptyText: emptyText, removeAction: removeAction)
                         .padding(.horizontal, -10)
                 }

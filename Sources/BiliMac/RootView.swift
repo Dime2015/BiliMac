@@ -163,14 +163,16 @@ private struct PageContent: View {
 
     var body: some View {
         let r = route
-        if r.needsLogin && !app.account.loggedIn {
+        // BILIMAC_LIVE_UIDS lets 动态 open signed out, to check the 正在直播 strip.
+        if r.needsLogin && !app.account.loggedIn && !(r == .dynamics && LiveNowCenter.testUIDs != nil) {
             MainPanel { LoginPromptView(what: r == .messages ? L("消息") : L("动态、历史记录、稍后再看和收藏夹")) }
         } else {
             switch r {
             case .home: HomePage()
             case .featured: FeaturedView(feed: app.featured, actions: app.nowActions)
             case .dynamics:
-                ListPage(kicker: L("关注"), title: L("动态"), subtitle: L("关注的 UP 主最新投稿"), key: "dynamics")
+                ListPage(kicker: L("关注"), title: L("动态"), subtitle: L("关注的 UP 主最新投稿"), key: "dynamics",
+                         accessory: AnyView(LiveNowStrip()))
             case .history:
                 ListPage(kicker: L("我的"), title: L("历史记录"), subtitle: L("在任意设备上看过的视频"), key: "history")
             case .watchLater:
@@ -287,6 +289,7 @@ struct AccountButton: View {
 private struct Sidebar: View {
     @EnvironmentObject var app: AppModel
     @ObservedObject private var messages = MessageCenter.shared
+    @ObservedObject private var liveNow = LiveNowCenter.shared
     @Namespace private var ns
 
     var body: some View {
@@ -301,7 +304,8 @@ private struct Sidebar: View {
                 .padding(.bottom, 12)
                 NavRow(icon: "house", title: L("首页"), selected: app.route == .home, ns: ns) { app.go(.home) }
                 NavRow(icon: "play.rectangle", title: L("精选"), selected: app.route == .featured, ns: ns) { app.go(.featured) }
-                NavRow(icon: "dot.radiowaves.left.and.right", title: L("动态"), selected: app.route == .dynamics, ns: ns) { app.go(.dynamics) }
+                NavRow(icon: "dot.radiowaves.left.and.right", title: L("动态"), selected: app.route == .dynamics, ns: ns,
+                       live: liveNow.followedCount) { app.go(.dynamics) }
                 NavRow(icon: "bell", title: L("消息"), selected: app.route == .messages, ns: ns, badge: messages.unread.total) { app.go(.messages) }
             }
             .padding(.horizontal, 12)
@@ -339,6 +343,8 @@ private struct NavRow: View {
     let selected: Bool
     let ns: Namespace.ID
     var badge = 0
+    /// Followed streamers live now (动态).
+    var live = 0
     let action: () -> Void
     @State private var hover = false
     var body: some View {
@@ -347,6 +353,7 @@ private struct NavRow: View {
                 Image(systemName: selected ? filledSymbol(icon) : icon).font(.system(size: 19, weight: .semibold)).frame(width: 24)
                 Text(title).font(.system(size: 15, weight: .bold))
                 Spacer()
+                LiveCountBadge(count: live)
                 UnreadBadge(count: badge)
             }
             .foregroundStyle(selected || hover ? Theme.text : Theme.text2)
@@ -492,6 +499,7 @@ private struct AutoHideRail: View {
 private struct IconRail: View {
     @EnvironmentObject var app: AppModel
     @ObservedObject private var messages = MessageCenter.shared
+    @ObservedObject private var liveNow = LiveNowCenter.shared
     @ObservedObject private var settings = AppSettings.shared
     @Namespace private var ns
     var body: some View {
@@ -502,6 +510,13 @@ private struct IconRail: View {
             RailIcon(icon: "house", label: L("首页"), selected: app.route == .home, ns: ns) { app.go(.home) }
             RailIcon(icon: "play.rectangle", label: L("精选"), selected: app.route == .featured, ns: ns) { app.go(.featured) }
             RailIcon(icon: "dot.radiowaves.left.and.right", label: L("动态"), selected: app.route == .dynamics, ns: ns) { app.go(.dynamics) }
+                .overlay(alignment: .topTrailing) {
+                    if liveNow.followedCount > 0 {
+                        Circle().fill(Theme.pink).frame(width: 9, height: 9)
+                            .overlay(Circle().strokeBorder(Theme.panel, lineWidth: 1.5))
+                            .offset(x: -8, y: 9).allowsHitTesting(false)
+                    }
+                }
             RailIcon(icon: "books.vertical", label: L("历史记录"), selected: app.route == .history, ns: ns) { app.go(.history) }
             RailIcon(icon: "clock", label: L("稍后再看"), selected: app.route == .watchLater, ns: ns) { app.go(.watchLater) }
             RailIcon(icon: "star", label: L("收藏夹"), selected: { if case .favorites = app.route { return true }; return false }(), ns: ns) {
