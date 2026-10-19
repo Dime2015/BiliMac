@@ -116,6 +116,15 @@ func thumbnail(_ u: URL?, width: Int) -> URL? {
     return URL(string: u.absoluteString + "@\(width)w_\(width * 9 / 16)h_1c.webp")
 }
 
+/// The words inside bilibili's <em class="keyword"> marks in a search result title.
+func keywordHighlights(_ s: String) -> [String] {
+    guard s.contains("<em") else { return [] }
+    let re = try! NSRegularExpression(pattern: #"<em class="keyword">(.*?)</em>"#)
+    return re.matches(in: s, range: NSRange(s.startIndex..., in: s)).compactMap { m in
+        Range(m.range(at: 1), in: s).map { plainTitle(String(s[$0])) }
+    }.filter { !$0.isEmpty }
+}
+
 func plainTitle(_ s: String) -> String {
     var t = s.replacingOccurrences(of: "<em class=\"keyword\">", with: "").replacingOccurrences(of: "</em>", with: "")
     for (a, b) in [("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'")] {

@@ -5,12 +5,12 @@ import SwiftUI
 
 enum Route: Hashable {
     case home, featured, dynamics, history, watchLater, favorites(Int?), search(String), video(VideoCard), space(Int),
-         collection(SpaceCollection), messages, settings
+         collection(SpaceCollection), messages, live(Int), settings
 
     /// Pages that use the collapsed icon rail instead of the full sidebar.
     var usesRail: Bool {
         switch self {
-        case .featured, .video: return true
+        case .featured, .video, .live: return true
         default: return false
         }
     }
@@ -143,6 +143,7 @@ final class AppModel: ObservableObject {
             else if r.hasPrefix("search:") { submitSearch(String(r.dropFirst(7))) }
             else if r.hasPrefix("video:") { open(VideoCard(bvid: String(r.dropFirst(6)), title: "", cover: nil, owner: "")) }
             else if r.hasPrefix("space:"), let mid = Int(r.dropFirst(6)) { go(.space(mid)) }
+            else if r.hasPrefix("live:"), let room = Int(r.dropFirst(5)) { go(.live(room)) }
         }
     }
 
@@ -227,6 +228,8 @@ final class AppModel: ObservableObject {
 
     func open(_ card: VideoCard) { go(.video(card)) }
 
+    func openLive(_ roomId: Int) { go(.live(roomId)) }
+
     let search = SearchModel()
 
     func submitSearch(_ query: String? = nil) {
@@ -234,7 +237,7 @@ final class AppModel: ObservableObject {
         guard !q.isEmpty else { return }
         searchText = q
         search.record(q)
-        if let l = lists["search:\(q)"] { Task { await l.reload() } }
+        for (k, l) in lists where k == "search:\(q)" || (k.hasPrefix("searchv:") && k.hasSuffix(":\(q)")) { Task { await l.reload() } }
         go(.search(q))
     }
 
@@ -444,7 +447,17 @@ final class AppModel: ObservableObject {
         case "watchLater":
             l = PagedList { _ in (try await api.watchLater(), [:], false) }
         default:
-            if key.hasPrefix("search:") {
+            if key.hasPrefix("searchv:") {
+                // searchv:<order>:<query>
+                let rest = key.dropFirst(8)
+                let order = SearchOrder(rawValue: String(rest.prefix { $0 != ":" })) ?? .rank
+                let q = String(rest.drop { $0 != ":" }.dropFirst())
+                l = PagedList { s in
+                    let p = Int(s["p"] ?? "1")!
+                    let r = try await api.searchVideos(q, order: order, page: p)
+                    return (r.items, ["p": "\(p + 1)"], p < r.pages)
+                }
+            } else if key.hasPrefix("search:") {
                 let q = String(key.dropFirst(7))
                 l = PagedList { s in
                     let p = Int(s["p"] ?? "1")!

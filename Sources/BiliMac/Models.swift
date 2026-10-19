@@ -15,6 +15,8 @@ struct VideoCard: Identifiable, Hashable {
     var pubdate: Date? = nil
     var progress: Int? = nil       // seconds watched (history / watch later); -1 = finished
     var reason: String? = nil      // 推荐理由 / 已关注 etc.
+    /// Search: the words bilibili marked as matching the query (drawn in pink in the title).
+    var highlights: [String] = []
     var viewedAt: Date? = nil
     var id: String { bvid }
 
@@ -35,7 +37,8 @@ struct VideoCard: Identifiable, Hashable {
             duration: j.int("duration") ?? parseDurationText(j.str("duration")),
             pubdate: j.int("pubdate").map { Date(timeIntervalSince1970: TimeInterval($0)) },
             progress: j.int("progress"),
-            reason: j.obj("rcmd_reason")?.str("content").flatMap { $0.isEmpty ? nil : $0 })
+            reason: j.obj("rcmd_reason")?.str("content").flatMap { $0.isEmpty ? nil : $0 },
+            highlights: keywordHighlights(j.str("title") ?? ""))
     }
 }
 

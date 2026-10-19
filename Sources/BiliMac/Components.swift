@@ -313,7 +313,7 @@ struct ShelfCard: View {
                 // Shadow only while lifted: always-on shadows on every cover make page switches and scrolling heavy.
                 .shadow(color: Theme.shadow.opacity(hover ? 1 : 0), radius: hover ? 16 : 0, y: hover ? 10 : 0)
                 .offset(y: hover ? -3 : 0)
-            Text(card.title)
+            Text(highlightedTitle)
                 .font(.system(size: 14, weight: .bold))
                 .lineLimit(2)
                 .lineSpacing(2)
@@ -334,6 +334,19 @@ struct ShelfCard: View {
         .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
         .onHover { h in withAnimation(Motion.pop) { hover = h } }
+    }
+
+    /// Search matches in pink, like the website.
+    private var highlightedTitle: AttributedString {
+        var a = AttributedString(card.title)
+        for w in Set(card.highlights) {
+            var from = a.startIndex
+            while from < a.endIndex, let r = a[from...].range(of: w, options: .caseInsensitive) {
+                a[r].foregroundColor = Theme.pink
+                from = r.upperBound
+            }
+        }
+        return a
     }
 
     private var metaLead: String? {

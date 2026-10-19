@@ -177,7 +177,7 @@ private struct PageContent: View {
                 ListPage(kicker: L("我的"), title: L("稍后再看"), subtitle: nil, key: "watchLater") { app.removeFromWatchLater($0) }
             case .favorites(let id): FavoritesPage(folderID: id ?? app.favFolders.first?.id)
             case .search(let q):
-                ListPage(kicker: L("搜索结果"), title: q, subtitle: nil, key: "search:\(q)", emptyText: L("没有找到相关视频"))
+                SearchPage(query: q).id(q)
             case .video(let card): VideoScreen(card: card).id(card.bvid)
             case .space(let mid): SpacePage(mid: mid).id(mid)
             case .collection(let c):
@@ -186,6 +186,7 @@ private struct PageContent: View {
 
 
             case .messages: MessagesPage()
+            case .live(let id): LivePage(roomId: id).id(id)
             case .settings: EmptyView()
             }
         }
