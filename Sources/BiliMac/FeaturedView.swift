@@ -11,12 +11,15 @@ struct FeaturedView: View {
     /// Comments in a panel on the right (the picture shrinks to make room).
     @State private var showComments = false
     @StateObject private var comments = CommentsModel()
-    /// 「接下来」: shown briefly for each new video, then tucked away until the pointer reaches the right edge.
-    /// 「接下来」: a small strip when a video starts, full list while hovered, hidden when left alone.
+    /// 「接下来」: a small strip of thumbnails in the top-right corner when a video starts, when it is paused and
+    /// when the mouse moves; hovering it grows it into the full list, and it hides again when left alone.
     enum NextState { case hidden, compact, expanded }
     @State private var nextState: NextState = .compact
     @State private var nextHover = false
     @State private var nextHide: Task<Void, Never>?
+    /// Paused by the user (not buffering): the strip stays up.
+    @State private var paused = false
+    @State private var lastPointerMove = Date.distantPast
 
     /// The copy rendered by RootView when the player fills the window.
     var fullBleed = false
@@ -73,17 +76,17 @@ struct FeaturedView: View {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
-                    } else if nextOn {
-                        // Right-edge hot zone: reaching for it opens the full list.
-                        Color.clear
-                            .frame(width: 28)
-                            .contentShape(Rectangle())
-                            .onHover { if $0 { setNext(.expanded) } }
-                            .padding(.top, 60).padding(.bottom, 110)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
                     }
                 }
                 .animation(Motion.page, value: nextState)
+                // Moving the mouse over the video brings the strip back (throttled; hovering the strip itself
+                // is handled above).
+                .onContinuousHover { phase in
+                    guard nextOn, case .active = phase, nextState != .expanded,
+                          Date().timeIntervalSince(lastPointerMove) > 0.4 else { return }
+                    lastPointerMove = Date()
+                    setNext(.compact, hideAfter: 3)
+                }
                 if showComments && !placeholder {
                     commentsPanel
                         .frame(width: min(420, max(320, g.size.width * 0.32)))
@@ -98,6 +101,17 @@ struct FeaturedView: View {
         .task { await feed.take() }
         .onAppear { newVideo() }
         .onChange(of: feed.current.map(ObjectIdentifier.init)) { newVideo() }
+        // Pausing shows the strip and keeps it; playing again lets it hide.
+        .task(id: feed.current.map(ObjectIdentifier.init)) {
+            guard let clock = feed.current?.clock else { return }
+            for await (playing, waiting) in clock.$playing.combineLatest(clock.$waiting).removeDuplicates(by: ==).values {
+                let now = !playing && !waiting
+                guard now != paused else { continue }
+                paused = now
+                if now { if nextState == .hidden { setNext(.compact) } }
+                else if nextState == .compact, !nextHover { setNext(.compact, hideAfter: 3) }
+            }
+        }
         // Comments follow the video being played, fetched only while the panel is open.
         .task(id: showComments ? actions.detail?.aid : nil) {
             guard showComments, let d = actions.detail, d.bvid == feed.currentItem?.bvid else { return }
@@ -142,13 +156,14 @@ struct FeaturedView: View {
         .animation(visible ? Motion.pop : .easeOut(duration: 0.4), value: visible)
     }
 
+    /// `hideAfter`: hide then, unless the pointer is on it or the video is paused.
     private func setNext(_ state: NextState, hideAfter secs: Double? = nil) {
         nextHide?.cancel()
         if nextState != state { nextState = state }
         guard let secs else { return }
         nextHide = Task {
             try? await Task.sleep(for: .seconds(secs))
-            if !Task.isCancelled, !nextHover { nextState = .hidden }
+            if !Task.isCancelled, !nextHover, !paused { nextState = .hidden }
         }
     }
 
