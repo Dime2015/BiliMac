@@ -39,12 +39,41 @@ struct LiveStream {
 
 struct LiveChatItem: Identifiable, Hashable {
     enum Kind: Hashable { case text, gift, superChat(price: Int), notice }
+    /// 粉丝牌: the streamer's fan club badge the sender wears.
+    struct Medal: Hashable { let name: String; let level: Int; let start: UInt32; let end: UInt32; let lit: Bool }
+    struct Sticker: Hashable { let url: URL; let width: CGFloat; let height: CGFloat }
     let id = UUID()
     let kind: Kind
     let uname: String
     let text: String
     let color: UInt32
+    var face: URL? = nil
+    var medal: Medal? = nil
+    /// 舰长 3 / 提督 2 / 总督 1, 0 = none.
+    var guardLevel = 0
+    var nameColor: UInt32? = nil
+    var sticker: Sticker? = nil
+    var giftIcon: URL? = nil
+    /// SuperChat: header and body colors.
+    var scTop: UInt32? = nil
+    var scBody: UInt32? = nil
+
+    static func hex(_ s: String?) -> UInt32? {
+        guard var t = s?.trimmingCharacters(in: .whitespaces), !t.isEmpty else { return nil }
+        if t.hasPrefix("#") { t.removeFirst() }
+        return UInt32(t, radix: 16)
+    }
+
+    static func medal(_ m: JSON?) -> Medal? {
+        guard let m, let name = m.str("name") ?? m.str("medal_name"), !name.isEmpty,
+              let level = m.int("level") ?? m.int("medal_level"), level > 0 else { return nil }
+        let start = (m.int("color_start") ?? m.int("medal_color_start") ?? m.int("color") ?? m.int("medal_color") ?? 0x5762A799).asColor
+        let end = (m.int("color_end") ?? m.int("medal_color_end") ?? 0).asColor
+        return Medal(name: name, level: level, start: start, end: end == 0 ? start : end, lit: (m.int("is_light") ?? 1) == 1)
+    }
 }
+
+private extension Int { var asColor: UInt32 { UInt32(truncatingIfNeeded: self) & 0xFFFFFF } }
 
 // MARK: - API
 
@@ -205,13 +234,42 @@ final class LiveChat: @unchecked Sendable {
             let meta = info[0] as? [Any] ?? []
             let user = info[2] as? [Any] ?? []
             let color = (meta.count > 3 ? meta[3] as? NSNumber : nil)?.uint32Value ?? 0xFFFFFF
-            item = LiveChatItem(kind: .text, uname: user.count > 1 ? (user[1] as? String ?? "") : "", text: text, color: color)
+            var it = LiveChatItem(kind: .text, uname: user.count > 1 ? (user[1] as? String ?? "") : "", text: text, color: color)
+            // The newer user block (info[0][15].user) carries face, badge, guard and name colour.
+            let u = (meta.count > 15 ? meta[15] as? JSON : nil)?.obj("user")
+            if let base = u?.obj("base") {
+                it.face = imageURL(base.str("face"))
+                it.nameColor = LiveChatItem.hex(base.str("name_color_str"))
+            }
+            it.medal = LiveChatItem.medal(u?.obj("medal"))
+                ?? (info.count > 3 ? info[3] as? [Any] : nil).flatMap { a -> LiveChatItem.Medal? in
+                    guard a.count > 4, let lv = (a[0] as? NSNumber)?.intValue, let name = a[1] as? String, !name.isEmpty else { return nil }
+                    let c = ((a[4] as? NSNumber)?.intValue ?? 0).asColor
+                    return LiveChatItem.Medal(name: name, level: lv, start: c, end: c, lit: true)
+                }
+            it.guardLevel = (info.count > 7 ? (info[7] as? NSNumber)?.intValue : nil) ?? u?.obj("medal")?.int("guard_level") ?? 0
+            // Room stickers (表情) come as an image; the text is only their name.
+            if meta.count > 13, let e = meta[13] as? JSON, let url = imageURL(e.str("url")) {
+                it.sticker = .init(url: url, width: CGFloat(e.double("width") ?? 60), height: CGFloat(e.double("height") ?? 60))
+            }
+            item = it
         case "SUPER_CHAT_MESSAGE":
-            item = LiveChatItem(kind: .superChat(price: d.int("price") ?? 0), uname: d.obj("user_info")?.str("uname") ?? "",
-                                text: d.str("message") ?? "", color: 0xFFFFFF)
+            let ui = d.obj("user_info")
+            var it = LiveChatItem(kind: .superChat(price: d.int("price") ?? 0), uname: ui?.str("uname") ?? "",
+                                  text: d.str("message") ?? "", color: 0xFFFFFF)
+            it.face = imageURL(ui?.str("face"))
+            it.medal = LiveChatItem.medal(d.obj("medal_info"))
+            it.scTop = LiveChatItem.hex(d.str("background_bottom_color"))
+            it.scBody = LiveChatItem.hex(d.str("background_color"))
+            item = it
         case "SEND_GIFT":
-            item = LiveChatItem(kind: .gift, uname: d.str("uname") ?? "",
-                                text: Lf("赠送 %@ × %@", d.str("giftName") ?? "", "\(d.int("num") ?? 1)"), color: 0xFFFFFF)
+            var it = LiveChatItem(kind: .gift, uname: d.str("uname") ?? "",
+                                  text: Lf("%@ %@ × %@", d.str("action") ?? L("投喂"), d.str("giftName") ?? "", "\(d.int("num") ?? 1)"),
+                                  color: 0xFFFFFF)
+            it.face = imageURL(d.str("face"))
+            it.medal = LiveChatItem.medal(d.obj("medal_info"))
+            it.giftIcon = imageURL(d.obj("gift_info")?.str("webp") ?? d.obj("gift_info")?.str("img_basic"))
+            item = it
         case "WATCHED_CHANGE":
             if let t = d.str("text_large") { Task { @MainActor in self.onWatched?(t) } }
         default: break
@@ -611,7 +669,7 @@ struct LivePage: View {
             Text(L("弹幕")).font(.system(size: 15, weight: .bold)).padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 8)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 6) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         ChatLines(store: live.chatStore)
                         Color.clear.frame(height: 1).id("end")
                     }
@@ -659,25 +717,139 @@ private struct ChatLines: View {
 
 private struct ChatLine: View {
     let item: LiveChatItem
+    @State private var hover = false
+
     var body: some View {
-        switch item.kind {
-        case .superChat(let price):
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(item.uname) · ¥\(price)").font(.system(size: 11.5, weight: .bold))
-                Text(item.text).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+        Group {
+            switch item.kind {
+            case .superChat(let price): superChat(price)
+            case .gift: gift
+            default: danmaku
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// [粉丝牌] name：message, the way the official chat reads; stickers as images.
+    private var danmaku: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            if item.guardLevel > 0 { GuardMark(level: item.guardLevel) }
+            if let m = item.medal { MedalBadge(medal: m) }
+            if item.sticker == nil {
+                (Text(item.uname + "：").foregroundColor(nameColor) + Text(item.text).foregroundColor(Theme.text))
+                    .font(.system(size: 13.5))
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(item.uname + "：").font(.system(size: 13.5)).foregroundStyle(nameColor)
+            }
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(hover ? Theme.text.opacity(0.05) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .onHover { hover = $0 }
+        .modifier(StickerBelow(sticker: item.sticker))
+    }
+
+    private var nameColor: Color {
+        if let c = item.nameColor, c != 0 { return Color(hex: c) }
+        return item.guardLevel > 0 ? Color(hex: 0xE15D8A) : Theme.text3
+    }
+
+    private var gift: some View {
+        HStack(spacing: 8) {
+            if let icon = item.giftIcon {
+                RemoteImage(url: icon, contentMode: .fit).frame(width: 26, height: 26)
+            } else {
+                Image(systemName: "gift.fill").font(.system(size: 13)).foregroundStyle(Color(hex: 0xF0A24A)).frame(width: 26, height: 26)
+            }
+            (Text(item.uname + " ").foregroundColor(Theme.text2) + Text(item.text).foregroundColor(Color(hex: 0xF0A24A)))
+                .font(.system(size: 12.5, weight: .medium))
+                .lineLimit(2)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(hex: 0xF0A24A).opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    /// Two-tone card like the official SuperChat: who and how much on top, the message below.
+    private func superChat(_ price: Int) -> some View {
+        let top = Color(hex: item.scTop ?? 0x2A60B2), body = Color(hex: item.scBody ?? 0xEDF5FF)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Avatar(url: item.face, size: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.uname).font(.system(size: 12.5, weight: .bold)).lineLimit(1)
+                    if let m = item.medal { MedalBadge(medal: m) }
+                }
+                Spacer(minLength: 4)
+                Text("¥\(price)").font(.system(size: 14, weight: .heavy)).monospacedDigit()
             }
             .foregroundStyle(.white)
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(hex: 0xE09443), in: RoundedRectangle(cornerRadius: 8))
-        case .gift:
-            (Text(item.uname + " ").foregroundColor(Theme.text2) + Text(item.text).foregroundColor(Color(hex: 0xF0A24A)))
-                .font(.system(size: 12))
-        default:
-            (Text(item.uname.isEmpty ? "" : item.uname + "：").foregroundColor(Theme.text3) + Text(item.text).foregroundColor(Theme.text))
-                .font(.system(size: 13))
-                .textSelection(.enabled)
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(top)
+            Text(item.text).font(.system(size: 13.5)).foregroundStyle(.black.opacity(0.85))
                 .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(body)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(.vertical, 3)
+    }
+}
+
+/// 粉丝牌: the club name on the colour gradient, the level in a white box, dimmed when unlit.
+private struct MedalBadge: View {
+    let medal: LiveChatItem.Medal
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(medal.name).font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                .padding(.horizontal, 4)
+            Text("\(medal.level)").font(.system(size: 10, weight: .heavy)).monospacedDigit()
+                .foregroundStyle(Color(hex: medal.start))
+                .padding(.horizontal, 3)
+                .frame(minWidth: 16)
+                .background(.white)
+        }
+        .frame(height: 16)
+        .background(LinearGradient(colors: [Color(hex: medal.start), Color(hex: medal.end)], startPoint: .leading, endPoint: .trailing))
+        .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous).strokeBorder(Color(hex: medal.start), lineWidth: 1))
+        .opacity(medal.lit ? 1 : 0.45)
+        .fixedSize()
+        .alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 3.5 }
+    }
+}
+
+/// 舰长 / 提督 / 总督.
+private struct GuardMark: View {
+    let level: Int
+    var body: some View {
+        Image(systemName: "sailboat.fill")
+            .font(.system(size: 10.5, weight: .bold))
+            .foregroundStyle(level == 1 ? Color(hex: 0xE5484D) : level == 2 ? Color(hex: 0xA855F7) : Color(hex: 0x3B82F6))
+            .help(level == 1 ? L("总督") : level == 2 ? L("提督") : L("舰长"))
+            .alignmentGuide(.firstTextBaseline) { d in d[.bottom] - 2 }
+    }
+}
+
+/// A sticker message: the image under the name, at a modest size.
+private struct StickerBelow: ViewModifier {
+    let sticker: LiveChatItem.Sticker?
+    func body(content: Content) -> some View {
+        if let s = sticker {
+            VStack(alignment: .leading, spacing: 2) {
+                content
+                let h = min(48, s.height)
+                RemoteImage(url: s.url, contentMode: .fit)
+                    .frame(width: h * max(0.3, s.width / max(s.height, 1)), height: h)
+                    .padding(.leading, 6)
+            }
+        } else {
+            content
         }
     }
 }

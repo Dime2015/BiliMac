@@ -183,7 +183,8 @@
 "评分失败：%@" = "Rating failed: %@";
 "主播还没开播" = "This streamer is offline";
 "没有可播放的直播流" = "No playable live stream";
-"赠送 %@ × %@" = "sent %@ × %@";
+"%@ %@ × %@" = "%@ %@ × %@";
+"投喂" = "sent";
 "直播流加载失败" = "Couldn't load the live stream";
 "更多「%@」直播" = "More live in %@";
 "直播中" = "LIVE";
@@ -200,6 +201,9 @@
 "%@ 小时 %@ 分" = "%@ h %@ min";
 "%@ 分钟" = "%@ min";
 "发个弹幕" = "Say something";
+"总督" = "Governor";
+"提督" = "Admiral";
+"舰长" = "Captain";
 "直播" = "Live";
 "推荐" = "For You";
 "人气最高" = "Most popular";
