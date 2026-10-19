@@ -27,13 +27,16 @@ extension BiliAPI {
         do {
             let d = try await get("https://api.live.bilibili.com/xlive/web-ucenter/v1/xfetter/GetWebList",
                                   ["page": "1", "page_size": "30"])
-            let rooms = (d.arr("rooms") + d.arr("list")).compactMap(LiveNow.init)
-            return (rooms, max(d.int("count") ?? 0, rooms.count))
+            // `rooms` and `list` can carry the same streamers: keep each one once.
+            var seen = Set<Int>()
+            let rooms = (d.arr("rooms") + d.arr("list")).compactMap(LiveNow.init).filter { seen.insert($0.uid > 0 ? $0.uid : -$0.roomId).inserted }
+            return (rooms, max(min(d.int("count") ?? 0, rooms.count), rooms.count))
         } catch {
             // The 动态 page's own source: the live_users row of the portal.
             log("GetWebList: \(error.localizedDescription), trying the 动态 portal")
             let u = try await get("https://api.bilibili.com/x/polymer/web-dynamic/v1/portal").obj("live_users") ?? [:]
-            let rooms = u.arr("items").compactMap(LiveNow.init)
+            var seen = Set<Int>()
+            let rooms = u.arr("items").compactMap(LiveNow.init).filter { seen.insert($0.uid > 0 ? $0.uid : -$0.roomId).inserted }
             return (rooms, max(u.int("count") ?? 0, rooms.count))
         }
     }
