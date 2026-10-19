@@ -10,6 +10,7 @@ struct HomePage: View {
                 VStack(alignment: .leading, spacing: 22) {
                     SlidingChips(options: HomeTab.allCases.map { ($0, L($0.rawValue)) }, selection: $app.homeTab)
                     Text(app.greeting).font(.system(size: 30, weight: .black))
+                    RegionTags()
                     if app.account.loggedIn {
                         ContinueGrid(list: app.list(for: "history"))
                     }

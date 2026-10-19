@@ -120,7 +120,7 @@ private struct PageHost: View {
 
     static func cacheable(_ r: Route) -> Bool {
         switch r {
-        case .home, .dynamics, .history, .watchLater, .favorites, .search, .space, .collection: return true
+        case .home, .region, .dynamics, .history, .watchLater, .favorites, .search, .space, .collection: return true
         default: return false
         }
     }
@@ -187,6 +187,7 @@ private struct PageContent: View {
                          tint: Theme.tint(hex: 0x3D2A5C, light: 0xE6DDF3))
 
 
+            case .region(let id): RegionPage(id: id).id(id)
             case .messages: MessagesPage()
             case .live(let id): LivePage(roomId: id).id(id)
             case .settings: EmptyView()

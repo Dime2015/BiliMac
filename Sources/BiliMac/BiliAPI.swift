@@ -248,6 +248,19 @@ actor BiliAPI {
         try await call(signedURL(base, params))
     }
 
+    /// GET sent as if from another page of the website (some lists answer -352 to signed-out callers otherwise).
+    func get(_ base: String, _ params: [String: String], referer: String) async throws -> JSON {
+        var c = URLComponents(string: base)!
+        c.queryItems = params.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        var r = request(c.url!)
+        r.setValue(referer, forHTTPHeaderField: "Referer")
+        let (data, resp) = try await session.data(for: r)
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? JSON else {
+            throw APIError(description: Lf("接口返回异常（HTTP %@）", "\((resp as? HTTPURLResponse)?.statusCode ?? 0)"))
+        }
+        return try check(obj, c.url!.path)
+    }
+
     /// Form POST with the CSRF token (`bili_jct`) that every write endpoint requires.
     @discardableResult
     func post(_ urlString: String, _ form: [String: String]) async throws -> JSON {
