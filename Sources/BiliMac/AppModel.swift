@@ -5,7 +5,7 @@ import SwiftUI
 
 enum Route: Hashable {
     case home, featured, dynamics, history, watchLater, favorites(Int?), search(String), video(VideoCard), space(Int),
-         collection(SpaceCollection), messages, live(Int), settings
+         collection(SpaceCollection), messages, live(Int), liveHome, settings
     /// 分区: a tid_v2 (UGC) or a PGC season_type, see `Region`.
     case region(Int)
 
@@ -147,6 +147,7 @@ final class AppModel: ObservableObject {
             else if r.hasPrefix("region:"), let id = Int(r.dropFirst(7)) { go(.region(id)) }
             else if r.hasPrefix("space:"), let mid = Int(r.dropFirst(6)) { go(.space(mid)) }
             else if r.hasPrefix("live:"), let room = Int(r.dropFirst(5)) { go(.live(room)) }
+            else if r == "live" { go(.liveHome) }
         }
     }
 
@@ -232,6 +233,14 @@ final class AppModel: ObservableObject {
     func open(_ card: VideoCard) { go(.video(card)) }
 
     func openLive(_ roomId: Int) { go(.live(roomId)) }
+
+    /// 直播 and the rooms opened from it light up the 直播 entry.
+    var onLivePages: Bool {
+        switch route {
+        case .liveHome, .live: return true
+        default: return false
+        }
+    }
 
     let search = SearchModel()
 
@@ -452,13 +461,14 @@ final class AppModel: ObservableObject {
             l = PagedList { _ in (try await api.watchLater(), [:], false) }
         default:
             if key.hasPrefix("searchv:") {
-                // searchv:<order>:<query>
-                let rest = key.dropFirst(8)
-                let order = SearchOrder(rawValue: String(rest.prefix { $0 != ":" })) ?? .rank
-                let q = String(rest.drop { $0 != ":" }.dropFirst())
+                // searchv:<order>:<duration>:<query>
+                let parts = key.dropFirst(8).split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+                let order = SearchOrder(rawValue: String(parts.first ?? "")) ?? .rank
+                let duration = SearchDuration(rawValue: Int(parts.count > 1 ? parts[1] : "") ?? 0) ?? .any
+                let q = parts.count > 2 ? String(parts[2]) : ""
                 l = PagedList { s in
                     let p = Int(s["p"] ?? "1")!
-                    let r = try await api.searchVideos(q, order: order, page: p)
+                    let r = try await api.searchVideos(q, order: order, duration: duration, page: p)
                     return (r.items, ["p": "\(p + 1)"], p < r.pages)
                 }
             } else if key.hasPrefix("search:") {

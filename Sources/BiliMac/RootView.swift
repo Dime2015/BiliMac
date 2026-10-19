@@ -120,7 +120,7 @@ private struct PageHost: View {
 
     static func cacheable(_ r: Route) -> Bool {
         switch r {
-        case .home, .region, .dynamics, .history, .watchLater, .favorites, .search, .space, .collection: return true
+        case .home, .region, .dynamics, .history, .watchLater, .favorites, .search, .space, .collection, .liveHome: return true
         default: return false
         }
     }
@@ -190,6 +190,7 @@ private struct PageContent: View {
             case .region(let id): RegionPage(id: id).id(id)
             case .messages: MessagesPage()
             case .live(let id): LivePage(roomId: id).id(id)
+            case .liveHome: LiveHomePage()
             case .settings: EmptyView()
             }
         }
@@ -307,6 +308,7 @@ private struct Sidebar: View {
                 NavRow(icon: "play.rectangle", title: L("精选"), selected: app.route == .featured, ns: ns) { app.go(.featured) }
                 NavRow(icon: "dot.radiowaves.left.and.right", title: L("动态"), selected: app.route == .dynamics, ns: ns,
                        live: liveNow.followedCount) { app.go(.dynamics) }
+                NavRow(icon: "tv", title: L("直播"), selected: app.onLivePages, ns: ns) { app.go(.liveHome) }
                 NavRow(icon: "bell", title: L("消息"), selected: app.route == .messages, ns: ns, badge: messages.unread.total) { app.go(.messages) }
             }
             .padding(.horizontal, 12)
@@ -518,6 +520,7 @@ private struct IconRail: View {
                             .offset(x: -8, y: 9).allowsHitTesting(false)
                     }
                 }
+            RailIcon(icon: "tv", label: L("直播"), selected: app.onLivePages, ns: ns) { app.go(.liveHome) }
             RailIcon(icon: "books.vertical", label: L("历史记录"), selected: app.route == .history, ns: ns) { app.go(.history) }
             RailIcon(icon: "clock", label: L("稍后再看"), selected: app.route == .watchLater, ns: ns) { app.go(.watchLater) }
             RailIcon(icon: "star", label: L("收藏夹"), selected: { if case .favorites = app.route { return true }; return false }(), ns: ns) {

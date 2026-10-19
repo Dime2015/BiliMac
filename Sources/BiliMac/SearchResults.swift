@@ -21,7 +21,7 @@ enum SearchKind: String, CaseIterable, Identifiable {
 
 /// 综合排序 / 最多播放 / 最新发布 / 最多弹幕 / 最多收藏 (bilibili's `order` values).
 enum SearchOrder: String, CaseIterable, Identifiable {
-    case rank = "totalrank", plays = "click", newest = "pubdate", danmaku = "dm", favorites = "stow"
+    case rank = "totalrank", plays = "click", newest = "pubdate", danmaku = "dm", favorites = "stow", likes = "like"
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -30,6 +30,48 @@ enum SearchOrder: String, CaseIterable, Identifiable {
         case .newest: return L("最新发布")
         case .danmaku: return L("最多弹幕")
         case .favorites: return L("最多收藏")
+        case .likes: return L("最多点赞")
+        }
+    }
+}
+
+/// Video length filter (bilibili's `duration` 0–4).
+enum SearchDuration: Int, CaseIterable, Identifiable {
+    case any, under10, to30, to60, over60
+    var id: Int { rawValue }
+    var label: String {
+        switch self {
+        case .any: return L("全部时长")
+        case .under10: return L("10 分钟以下")
+        case .to30: return L("10–30 分钟")
+        case .to60: return L("30–60 分钟")
+        case .over60: return L("60 分钟以上")
+        }
+    }
+}
+
+/// Sorting for the other tabs: bilibili's `order` / `order_sort` for that kind.
+struct RowSort: Hashable, Identifiable {
+    let label: String
+    let order: String
+    var sort: Int? = nil
+    var id: String { "\(order)-\(sort ?? -1)" }
+}
+
+extension SearchKind {
+    var sorts: [RowSort] {
+        switch self {
+        case .user:
+            return [RowSort(label: L("默认排序"), order: ""), RowSort(label: L("粉丝数由高到低"), order: "fans", sort: 0),
+                    RowSort(label: L("粉丝数由低到高"), order: "fans", sort: 1), RowSort(label: L("等级由高到低"), order: "level", sort: 0)]
+        case .live:
+            return [RowSort(label: L("综合排序"), order: ""), RowSort(label: L("人气最高"), order: "online"),
+                    RowSort(label: L("最新开播"), order: "live_time")]
+        case .article:
+            return [RowSort(label: L("综合排序"), order: "totalrank"), RowSort(label: L("最新发布"), order: "pubdate"),
+                    RowSort(label: L("最多阅读"), order: "click"), RowSort(label: L("最多喜欢"), order: "attention"),
+                    RowSort(label: L("最多评论"), order: "scores")]
+        default: return []
         }
     }
 }
@@ -77,10 +119,12 @@ struct LiveRoomCard: Identifiable, Hashable {
 
     static func parse(_ j: JSON) -> LiveRoomCard? {
         guard let room = j.int("roomid") ?? j.int("room_id") else { return nil }
-        return LiveRoomCard(roomId: room, title: plainTitle(j.str("title") ?? ""),
-                            cover: imageURL(j.str("user_cover") ?? j.str("cover") ?? j.str("pic")),
-                            uname: plainTitle(j.str("uname") ?? ""), uid: j.int("uid") ?? 0, face: imageURL(j.str("uface")),
-                            online: j.int("online") ?? 0, area: plainTitle(j.str("cate_name") ?? ""), live: (j.int("live_status") ?? 1) == 1)
+        // Search, recommendation and area lists name the same fields a little differently.
+        let cover = [j.str("user_cover"), j.str("cover"), j.str("system_cover"), j.str("pic")].compactMap { $0 }.first { !$0.isEmpty }
+        return LiveRoomCard(roomId: room, title: plainTitle(j.str("title") ?? ""), cover: imageURL(cover),
+                            uname: plainTitle(j.str("uname") ?? ""), uid: j.int("uid") ?? 0, face: imageURL(j.str("uface") ?? j.str("face")),
+                            online: j.int("online") ?? 0, area: plainTitle(j.str("cate_name") ?? j.str("area_v2_name") ?? j.str("area_name") ?? ""),
+                            live: (j.int("live_status") ?? 1) == 1)
     }
 }
 
@@ -159,18 +203,19 @@ extension BiliAPI {
         return d.int("numResults") ?? 0
     }
 
-    func searchVideos(_ keyword: String, order: SearchOrder, page: Int) async throws -> (items: [VideoCard], pages: Int) {
+    func searchVideos(_ keyword: String, order: SearchOrder, duration: SearchDuration = .any, page: Int) async throws -> (items: [VideoCard], pages: Int) {
         let d = try await signedGet("https://api.bilibili.com/x/web-interface/wbi/search/type", [
-            "search_type": "video", "keyword": keyword, "page": "\(page)", "order": order.rawValue,
+            "search_type": "video", "keyword": keyword, "page": "\(page)", "order": order.rawValue, "duration": "\(duration.rawValue)",
         ])
         return (d.arr("result").compactMap(VideoCard.archive), d.int("numPages") ?? 1)
     }
 
     /// One page of another kind's results, still as JSON rows (each tab parses its own).
-    func searchRows(_ kind: SearchKind, _ keyword: String, page: Int) async throws -> (rows: [JSON], pages: Int) {
-        let d = try await signedGet("https://api.bilibili.com/x/web-interface/wbi/search/type", [
-            "search_type": kind.rawValue, "keyword": keyword, "page": "\(page)",
-        ])
+    func searchRows(_ kind: SearchKind, _ keyword: String, page: Int, sort: RowSort? = nil) async throws -> (rows: [JSON], pages: Int) {
+        var p = ["search_type": kind.rawValue, "keyword": keyword, "page": "\(page)"]
+        if let sort, !sort.order.isEmpty { p["order"] = sort.order }
+        if let n = sort?.sort { p["order_sort"] = "\(n)" }
+        let d = try await signedGet("https://api.bilibili.com/x/web-interface/wbi/search/type", p)
         // Live search answers {live_room: [...], live_user: [...]}.
         let rows = (d["result"] as? [JSON]) ?? d.obj("result")?.arr(kind.rawValue) ?? []
         return (rows, d.int("numPages") ?? 1)
@@ -184,6 +229,16 @@ final class SearchPageModel: ObservableObject {
     let query: String
     @Published var kind: SearchKind = .all
     @Published var order: SearchOrder = .rank
+    @Published var duration: SearchDuration = .any
+    @Published private(set) var rowSorts: [SearchKind: RowSort] = [:]
+
+    func sort(for k: SearchKind) -> RowSort? { rowSorts[k] ?? k.sorts.first }
+
+    func setSort(_ s: RowSort, for k: SearchKind) {
+        guard s != sort(for: k) else { return }
+        rowSorts[k] = s
+        Task { await loadRows(k, reset: true) }
+    }
     @Published private(set) var counts: [SearchKind: Int] = [:]
     @Published private(set) var user: SearchUser?
     @Published private(set) var userFollowing: Bool?
@@ -217,7 +272,7 @@ final class SearchPageModel: ObservableObject {
     }
 
     /// The video grid for the current order lives in the app's shared list cache.
-    var videoKey: String { "searchv:\(order.rawValue):\(query)" }
+    var videoKey: String { "searchv:\(order.rawValue):\(duration.rawValue):\(query)" }
 
     func select(_ k: SearchKind) {
         guard k != kind else { return }
@@ -227,18 +282,23 @@ final class SearchPageModel: ObservableObject {
         }
     }
 
+    /// Bumped on every reset, so a page still on its way for the old tab or sort is dropped.
+    private var generation = 0
+
     func loadRows(_ k: SearchKind, reset: Bool = false) async {
-        if reset { page = 1; more = true }
+        if reset { generation += 1; page = 1; more = true; loading = false }
         guard !loading, more else { return }
         loading = true
-        defer { loading = false }
+        let gen = generation
+        defer { if gen == generation { loading = false } }
         let r: (rows: [JSON], pages: Int)
-        do { r = try await BiliAPI.shared.searchRows(k, query, page: page) } catch {
-            if (error as? URLError)?.code == .cancelled || error is CancellationError { return }
+        do { r = try await BiliAPI.shared.searchRows(k, query, page: page, sort: sort(for: k)) } catch {
+            guard gen == generation, (error as? URLError)?.code != .cancelled, !(error is CancellationError) else { return }
             log("search \(k.rawValue) p\(page): \(error)")
             more = false
             return
         }
+        guard gen == generation else { return }
         switch k {
         case .user: users = (reset ? [] : users) + r.rows.compactMap(SearchUser.parse)
         case .live: rooms = (reset ? [] : rooms) + r.rows.compactMap(LiveRoomCard.parse)
@@ -279,7 +339,11 @@ struct SearchPage: View {
                     SearchTabs(model: model)
                     switch model.kind {
                     case .all, .video:
-                        SlidingChips(options: SearchOrder.allCases.map { ($0, $0.label) }, selection: $model.order, style: .white)
+                        HStack {
+                            SlidingChips(options: SearchOrder.allCases.map { ($0, $0.label) }, selection: $model.order, style: .white)
+                            Spacer(minLength: 12)
+                            Dropdown(options: SearchDuration.allCases.map { ($0, $0.label) }, selection: $model.duration)
+                        }
                         if model.kind == .all {
                             if let u = model.user { UserHero(user: u, following: model.userFollowing) { model.toggleFollow() } }
                             if !model.rooms.isEmpty {
@@ -291,12 +355,15 @@ struct SearchPage: View {
                             .padding(.horizontal, -10)
                             .id(model.videoKey)
                     case .live:
+                        sortChips(.live)
                         LiveGrid(rooms: model.rooms)
                         footer(.live, empty: model.rooms.isEmpty, text: L("没有正在直播的相关直播间"))
                     case .user:
+                        sortChips(.user)
                         LazyVStack(spacing: 4) { ForEach(model.users) { UserRow(user: $0) } }
                         footer(.user, empty: model.users.isEmpty, text: L("没有找到相关用户"))
                     case .article:
+                        sortChips(.article)
                         LazyVStack(spacing: 4) { ForEach(model.articles) { ArticleRow(article: $0) } }
                         footer(.article, empty: model.articles.isEmpty, text: L("没有找到相关专栏"))
                     case .bangumi, .film:
@@ -311,6 +378,11 @@ struct SearchPage: View {
             }
         }
         .task { await model.loadOverview() }
+    }
+
+    private func sortChips(_ k: SearchKind) -> some View {
+        SlidingChips(options: k.sorts.map { ($0, $0.label) },
+                     selection: Binding(get: { model.sort(for: k) ?? k.sorts[0] }, set: { model.setSort($0, for: k) }), style: .white)
     }
 
     @ViewBuilder private func footer(_ k: SearchKind, empty: Bool, text: String) -> some View {
