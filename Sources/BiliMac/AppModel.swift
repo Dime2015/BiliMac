@@ -150,7 +150,21 @@ final class AppModel: ObservableObject {
     var navStarted: CFTimeInterval = 0
     private func navBench() async {
         try? await Task.sleep(for: .seconds(4))
-        let routes: [Route] = [.dynamics, .home, .history, .watchLater, .favorites(nil), .home, .settings, .home, .dynamics, .home]
+        // BILIMAC_NAVBENCH=featured: back and forth between 精选 and 首页.
+        let routes: [Route] = ProcessInfo.processInfo.environment["BILIMAC_NAVBENCH"] == "featured"
+            ? [.featured, .home, .featured, .home, .featured, .home, .featured, .home]
+            : [.dynamics, .home, .history, .watchLater, .favorites(nil), .home, .settings, .home, .dynamics, .home]
+        // BILIMAC_NAVBENCH=swipe: watch 12 videos in 精选, then go to 首页.
+        if ProcessInfo.processInfo.environment["BILIMAC_NAVBENCH"] == "swipe" {
+            go(.featured)
+            for i in 0..<12 {
+                try? await Task.sleep(for: .seconds(3))
+                let t0 = CACurrentMediaTime()
+                featured.next()
+                DispatchQueue.main.async { log(String(format: "swipe %d main busy %.0f ms", i + 1, (CACurrentMediaTime() - t0) * 1000)) }
+            }
+            try? await Task.sleep(for: .seconds(3))
+        }
         for r in routes {
             navStarted = CACurrentMediaTime()
             go(r)
@@ -159,7 +173,18 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.async {
                 DispatchQueue.main.async { log(String(format: "nav→%@ main busy %.0f ms", "\(r)", (CACurrentMediaTime() - t0) * 1000)) }
             }
-            try? await Task.sleep(for: .seconds(1.5))
+            // Then watch the main thread for 3 s: the longest gap between 10 ms ticks is the hitch you feel.
+            Task { @MainActor in
+                var last = CACurrentMediaTime(), worst = 0.0, worstAt = 0.0
+                while CACurrentMediaTime() - t0 < 3 {
+                    try? await Task.sleep(for: .milliseconds(10))
+                    let now = CACurrentMediaTime()
+                    if now - last > worst { worst = now - last; worstAt = last - t0 }
+                    last = now
+                }
+                log(String(format: "nav→%@ worst main stall %.0f ms at +%.0f ms", "\(r)", worst * 1000, worstAt * 1000))
+            }
+            try? await Task.sleep(for: .seconds(r == .featured ? 4 : 2.5))
         }
     }
 
@@ -191,6 +216,7 @@ final class AppModel: ObservableObject {
         navForward = forward
         withAnimation(Motion.page) { route = r }
         updateNav()
+        HangRecorder.context.withLock { $0 = "page " + String(String(describing: r).prefix(60)) }
     }
 
     private func updateNav() {

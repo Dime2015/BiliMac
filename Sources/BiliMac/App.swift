@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated { AppSettings.shared.appearance.apply() }
         NSApp.activate(ignoringOtherApps: true)
         MainActor.assumeIsolated { InputRouter.shared.install() }
+        MainActor.assumeIsolated { HangRecorder.start() }
         if let size = Env.windowSize {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 if let w = NSApp.windows.first(where: { $0.canBecomeMain }) { w.setContentSize(size); w.center() }
