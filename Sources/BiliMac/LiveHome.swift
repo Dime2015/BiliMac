@@ -20,8 +20,8 @@ extension BiliAPI {
     }
 
     /// The newer area endpoint answers -352; this older one still works signed in or not.
-    func liveAreaRooms(parent: Int, sort: String, page: Int) async throws -> [LiveRoomCard] {
-        let url = URL(string: "https://api.live.bilibili.com/room/v3/area/getRoomList?parent_area_id=\(parent)&area_id=0&page=\(page)&page_size=30&sort_type=\(sort)&platform=web")!
+    func liveAreaRooms(parent: Int, area: Int = 0, sort: String, page: Int) async throws -> [LiveRoomCard] {
+        let url = URL(string: "https://api.live.bilibili.com/room/v3/area/getRoomList?parent_area_id=\(parent)&area_id=\(area)&page=\(page)&page_size=30&sort_type=\(sort)&platform=web")!
         let (obj, _) = try await rawJSON(url)
         let d = obj["data"] as? JSON
         return ((d?["list"] as? [JSON]) ?? []).compactMap(LiveRoomCard.parse)

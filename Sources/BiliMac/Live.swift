@@ -17,6 +17,16 @@ struct LiveRoomInfo {
     let area: String
     let watched: String
     let online: Int
+    var fans = 0
+    var tags: [String] = []
+    /// 主播公告 and the room's own description.
+    var notice = ""
+    var about = ""
+    var official = ""
+    var started: Date?
+    var parentAreaId = 0
+    var areaId = 0
+    var areaName = ""
 }
 
 struct LiveStream {
@@ -45,10 +55,18 @@ extension BiliAPI {
                                     ["room_id": "\(roomId)", "web_location": "444.8"])
         let r = d.obj("room_info") ?? [:]
         let a = d.obj("anchor_info")?.obj("base_info") ?? [:]
+        let about = plainTitle((r.str("description") ?? "").replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "&nbsp;", with: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
         return LiveRoomInfo(roomId: r.int("room_id") ?? roomId, title: r.str("title") ?? "", cover: imageURL(r.str("cover") ?? r.str("keyframe")),
                             live: r.int("live_status") == 1, uid: r.int("uid") ?? 0, uname: a.str("uname") ?? "", face: imageURL(a.str("face")),
                             area: [r.str("parent_area_name"), r.str("area_name")].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
-                            watched: d.obj("watched_show")?.str("text_large") ?? "", online: r.int("online") ?? 0)
+                            watched: d.obj("watched_show")?.str("text_large") ?? "", online: r.int("online") ?? 0,
+                            fans: d.obj("anchor_info")?.obj("relation_info")?.int("attention") ?? 0,
+                            tags: (r.str("tags") ?? "").split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty },
+                            notice: d.obj("news_info")?.str("content")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
+                            about: about, official: a.obj("official_info")?.str("title") ?? "",
+                            started: r.int("live_start_time").flatMap { $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil },
+                            parentAreaId: r.int("parent_area_id") ?? 0, areaId: r.int("area_id") ?? 0, areaName: r.str("area_name") ?? "")
     }
 
     /// The fMP4 HLS stream (the TS one is slow or unreachable on some CDN nodes), HEVC when it decodes in hardware.
@@ -216,6 +234,15 @@ final class LiveChat: @unchecked Sendable {
     }
 }
 
+@MainActor
+final class LiveChatStore: ObservableObject {
+    @Published private(set) var items: [LiveChatItem] = []
+    func append(_ new: [LiveChatItem]) {
+        items.append(contentsOf: new)
+        if items.count > 200 { items.removeFirst(items.count - 200) }
+    }
+}
+
 // MARK: - Controller
 
 @MainActor
@@ -226,14 +253,26 @@ final class LiveController: ObservableObject {
     @Published private(set) var stream: LiveStream?
     @Published private(set) var error: String?
     @Published private(set) var playing = false
-    @Published private(set) var chat: [LiveChatItem] = []
+    /// The chat list has its own store, so new lines redraw only the list, never the player side.
+    let chatStore = LiveChatStore()
     @Published private(set) var watched = ""
-    /// For the overlay: danmaku timed from when the room opened.
-    @Published private(set) var danmaku: [Danmaku] = []
+    @Published private(set) var following: Bool?
+    @Published private(set) var moreRooms: [LiveRoomCard] = []
+    /// Scrolling danmaku over the picture (not published: only its canvas redraws).
+    let danmakuLayer = LiveDanmakuLayer()
+    /// Chat lines arrive in bursts; they reach the list a few times a second, not one page update each.
+    private var pending: [LiveChatItem] = []
+    private var flushTask: Task<Void, Never>?
     let opened = Date()
     private let liveChat = LiveChat()
     private var hostIndex = 0
     private var statusObs: NSKeyValueObservation?
+    private var statsTask: Task<Void, Never>?
+
+    private var bufferAhead: Double {
+        guard let item = player.currentItem, let r = item.loadedTimeRanges.last?.timeRangeValue else { return 0 }
+        return (r.start + r.duration - item.currentTime()).seconds
+    }
     private var rateObs: NSKeyValueObservation?
 
     init(roomId: Int) {
@@ -256,6 +295,14 @@ final class LiveController: ObservableObject {
             liveChat.onWatched = { [weak self] t in self?.watched = t }
             let uid = AppModel.shared.account.mid
             Task { await liveChat.connect(roomId: i.roomId, uid: uid) }
+            Task {
+                // Same area, most popular first, without this room.
+                let list = (try? await BiliAPI.shared.liveAreaRooms(parent: i.parentAreaId, area: i.areaId, sort: "online", page: 1)) ?? []
+                moreRooms = Array(list.filter { $0.roomId != i.roomId }.prefix(8))
+            }
+            if AppModel.shared.account.loggedIn {
+                Task { following = (try? await BiliAPI.shared.space(mid: i.uid))?.following }
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -277,7 +324,11 @@ final class LiveController: ObservableObject {
     private func attach() {
         guard let s = stream, hostIndex < s.urls.count else { error = L("直播流加载失败"); return }
         let item = AVPlayerItem(url: s.urls[hostIndex])
-        item.preferredForwardBufferDuration = 4
+        // Segments are 1 s long: sitting right at the live edge stalls on the smallest hiccup. A few seconds
+        // behind it plays smoothly.
+        item.configuredTimeOffsetFromLive = CMTime(seconds: 6, preferredTimescale: 600)
+        item.automaticallyPreservesTimeOffsetFromLive = true
+        item.preferredForwardBufferDuration = 6
         statusObs = item.observe(\.status) { [weak self] it, _ in
             guard it.status == .failed else { return }
             Task { @MainActor in
@@ -290,14 +341,32 @@ final class LiveController: ObservableObject {
         player.replaceCurrentItem(with: item)
         player.play()
         error = nil
+        statsTask?.cancel()
+        statsTask = Task { [weak self] in
+            // Every 10 s: what the stream and the decoder are doing (for "the picture stutters" reports).
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(10))
+                guard let self, let e = self.player.currentItem?.accessLog()?.events.last else { continue }
+                log(String(format: "live %d: %@ %.1f Mbps (link %.1f) dropped %d stalls %d buffer %.1fs status %d",
+                           self.roomId, self.stream?.codec ?? "", e.indicatedBitrate / 1e6, e.observedBitrate / 1e6,
+                           e.numberOfDroppedVideoFrames, e.numberOfStalls, self.bufferAhead, self.player.timeControlStatus.rawValue))
+            }
+        }
     }
 
     private func received(_ item: LiveChatItem) {
-        chat.append(item)
-        if chat.count > 300 { chat.removeFirst(chat.count - 300) }
-        guard case .text = item.kind else { return }
-        danmaku.append(Danmaku(time: Date().timeIntervalSince(opened), mode: 1, size: 25, color: item.color, text: item.text))
-        if danmaku.count > 400 { danmaku.removeFirst(danmaku.count - 400) }
+        if case .text = item.kind, AppSettings.shared.danmakuOn {
+            danmakuLayer.add(item.text, color: item.color, at: Date().timeIntervalSinceReferenceDate)
+        }
+        pending.append(item)
+        guard flushTask == nil else { return }
+        flushTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let self else { return }
+            self.chatStore.append(self.pending)
+            self.pending = []
+            self.flushTask = nil
+        }
     }
 
     func togglePlay() {
@@ -310,12 +379,26 @@ final class LiveController: ObservableObject {
         }
     }
 
+    func toggleFollow() {
+        guard let i = info else { return }
+        guard AppModel.shared.account.loggedIn else { AppModel.shared.showLogin = true; return }
+        let on = !(following ?? false)
+        Task {
+            do {
+                try await BiliAPI.shared.follow(mid: i.uid, on)
+                following = on
+                AppModel.shared.notify(on ? L("已关注") : L("已取消关注"))
+            } catch { AppModel.shared.notify(Lf("操作失败：%@", "\(error.localizedDescription)")) }
+        }
+    }
+
     func setVolume(_ v: Float) {
         player.volume = v
         AppSettings.shared.volume = v
     }
 
     func stop() {
+        statsTask?.cancel()
         liveChat.stop()
         player.pause()
         player.replaceCurrentItem(with: nil)
@@ -346,12 +429,20 @@ struct LivePage: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 14) {
-                player
-                if let i = live.info { header(i) }
-                Spacer(minLength: 0)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    player
+                    if let i = live.info {
+                        header(i)
+                        details(i)
+                    }
+                    if !live.moreRooms.isEmpty {
+                        Text(Lf("更多「%@」直播", live.info?.areaName ?? "")).font(.system(size: 17, weight: .bold)).padding(.top, 6)
+                        LiveGrid(rooms: live.moreRooms)
+                    }
+                }
+                .padding(16)
             }
-            .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.panel, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             chatPanel
@@ -369,7 +460,7 @@ struct LivePage: View {
         ZStack {
             Color.black
             VideoLayer(player: live.player)
-            if settings.danmakuOn { LiveDanmakuOverlay(live: live) }
+            if settings.danmakuOn { LiveDanmakuCanvas(layer: live.danmakuLayer) }
             if let e = live.error {
                 VStack(spacing: 10) {
                     if let c = live.info?.cover {
@@ -449,19 +540,30 @@ struct LivePage: View {
     }
 
     private func header(_ i: LiveRoomInfo) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Button { app.go(.space(i.uid)) } label: { Avatar(url: i.face, size: 48) }
+        HStack(alignment: .center, spacing: 12) {
+            Button { app.go(.space(i.uid)) } label: { Avatar(url: i.face, size: 52) }
                 .buttonStyle(.pressable)
                 .help(L("查看 UP 主主页"))
             VStack(alignment: .leading, spacing: 5) {
                 Text(i.title).font(.system(size: 19, weight: .bold)).lineLimit(2)
                 HStack(spacing: 0) {
                     OwnerLink(name: i.uname, mid: i.uid, font: .system(size: 13.5, weight: .semibold), color: Theme.text2)
-                    Text([i.area, live.watched].filter { !$0.isEmpty }.map { " · " + $0 }.joined())
+                    Text([i.area, live.watched, i.started.map { Lf("开播 %@", liveSince($0)) } ?? ""]
+                        .filter { !$0.isEmpty }.map { " · " + $0 }.joined())
                         .font(.system(size: 13)).foregroundStyle(Theme.text3).lineLimit(1)
                 }
             }
             Spacer()
+            Button { live.toggleFollow() } label: {
+                VStack(spacing: 1) {
+                    Text(live.following == true ? L("已关注") : L("+ 关注")).font(.system(size: 13, weight: .bold))
+                    if i.fans > 0 { Text(Lf("%@粉丝", formatCount(i.fans))).font(.system(size: 10.5)).opacity(0.8) }
+                }
+                .foregroundStyle(live.following == true ? Theme.text2 : Theme.onPrimary)
+                .padding(.horizontal, 16).frame(height: 40)
+                .background(live.following == true ? Theme.chip : Theme.primary, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+            .buttonStyle(.pressable)
             Button { NSWorkspace.shared.open(URL(string: "https://live.bilibili.com/\(i.roomId)")!) } label: {
                 Image(systemName: "safari").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text2)
                     .frame(width: 32, height: 32).background(Theme.chip, in: Circle())
@@ -471,19 +573,52 @@ struct LivePage: View {
         }
     }
 
+    /// Tags, the streamer's notice, the room description and verification, as cards.
+    @ViewBuilder private func details(_ i: LiveRoomInfo) -> some View {
+        if !i.tags.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(i.tags, id: \.self) { t in
+                    Text(t).font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.text2)
+                        .padding(.horizontal, 10).frame(height: 26).background(Theme.chip, in: Capsule())
+                }
+            }
+        }
+        let cards = [(L("主播公告"), i.notice), (L("房间简介"), i.about), (L("认证"), i.official)].filter { !$0.1.isEmpty }
+        if !cards.isEmpty {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(cards, id: \.0) { title, text in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(title).font(.system(size: 12.5, weight: .bold)).foregroundStyle(Theme.text3)
+                        Text(text).font(.system(size: 13.5)).foregroundStyle(Theme.text).textSelection(.enabled)
+                            .lineLimit(6).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .background(Theme.text.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            }
+        }
+    }
+
+    /// "2 小时 5 分" since the stream started.
+    private func liveSince(_ d: Date) -> String {
+        let m = max(0, Int(Date().timeIntervalSince(d) / 60))
+        return m >= 60 ? Lf("%@ 小时 %@ 分", "\(m / 60)", "\(m % 60)") : Lf("%@ 分钟", "\(m)")
+    }
+
     private var chatPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(L("弹幕")).font(.system(size: 15, weight: .bold)).padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 8)
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
-                        ForEach(live.chat) { ChatLine(item: $0).id($0.id) }
+                        ChatLines(store: live.chatStore)
                         Color.clear.frame(height: 1).id("end")
                     }
                     .padding(.horizontal, 14)
                 }
                 .defaultScrollAnchor(.bottom)
-                .onChange(of: live.chat.last?.id) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+                .onReceive(live.chatStore.$items) { _ in proxy.scrollTo("end", anchor: .bottom) }
             }
             Divider().opacity(0.4)
             if app.account.loggedIn {
@@ -517,6 +652,11 @@ struct LivePage: View {
     }
 }
 
+private struct ChatLines: View {
+    @ObservedObject var store: LiveChatStore
+    var body: some View { ForEach(store.items) { ChatLine(item: $0).id($0.id) } }
+}
+
 private struct ChatLine: View {
     let item: LiveChatItem
     var body: some View {
@@ -539,21 +679,5 @@ private struct ChatLine: View {
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-/// Scrolling danmaku over the live picture, timed from when the room opened.
-private struct LiveDanmakuOverlay: View {
-    @ObservedObject var live: LiveController
-    @ObservedObject private var settings = AppSettings.shared
-    @State private var engine = DanmakuEngine()
-
-    var body: some View {
-        TimelineView(.animation) { _ in
-            Canvas { gc, size in
-                engine.draw(&gc, size: size, time: Date().timeIntervalSince(live.opened), list: live.danmaku, settings: settings)
-            }
-        }
-        .allowsHitTesting(false)
     }
 }
