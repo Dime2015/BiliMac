@@ -17,7 +17,7 @@ enum HangRecorder {
         let t = Timer(timeInterval: 0.1, repeats: true) { _ in beat.withLock { $0 = CACurrentMediaTime() } }
         RunLoop.main.add(t, forMode: .common)
         Thread.detachNewThread {
-            var sampling = false
+            let sampling = OSAllocatedUnfairLock(initialState: false)
             var lastSample = 0.0
             var worst = 0.0
             while true {
@@ -26,10 +26,10 @@ enum HangRecorder {
                 if gap > 1 {
                     worst = max(worst, gap)
                     // One sample per stall, at most one a minute.
-                    if !sampling, CACurrentMediaTime() - lastSample > 60 {
-                        sampling = true
+                    if !sampling.withLock({ $0 }), CACurrentMediaTime() - lastSample > 60 {
+                        sampling.withLock { $0 = true }
                         lastSample = CACurrentMediaTime()
-                        record { sampling = false }
+                        record { sampling.withLock { $0 = false } }
                     }
                 } else if worst > 0 {
                     append(String(format: "main thread blocked %.1f s · %@", worst, context.withLock { $0 }))

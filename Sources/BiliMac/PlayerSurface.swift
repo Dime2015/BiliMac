@@ -138,10 +138,16 @@ struct PlayerSurface<Overlay: View>: View {
     var expandingHeader = false
     /// Seconds the chrome (and the header card) stays up when this surface appears.
     var introHold: Double = 0
+    /// Top-right panel that comes and goes with the chrome, like the header card (精选's 接下来).
+    var cornerAccessory: AnyView? = nil
+    /// Pointer over the corner panel (it also keeps the chrome up).
+    var onCornerHover: ((Bool) -> Void)? = nil
     @ViewBuilder var overlay: (Bool) -> Overlay
     @ObservedObject private var settings = AppSettings.shared
     @StateObject private var ui = PlayerChrome()
     @Namespace private var headerNS
+    @State private var headerCardHeight: CGFloat = 0
+    @State private var cornerHovered = false
 
     var body: some View {
         Group {
@@ -149,6 +155,31 @@ struct PlayerSurface<Overlay: View>: View {
         }
         // The player is always dark, whatever the app's appearance.
         .environment(\.colorScheme, .dark)
+    }
+
+    /// The pointer over the picture means it is not on the corner panel any more (the panel's own "exited" can
+    /// go missing while it resizes under the pointer).
+    private func cornerHover(_ inside: Bool) {
+        guard cornerHovered != inside else { return }
+        cornerHovered = inside
+        ui.hoveringControls = inside
+        onCornerHover?(inside)
+    }
+
+    /// The corner panel shares the chrome's visibility; hovering it keeps the chrome (and itself) up.
+    @ViewBuilder private func corner(visible: Bool, top: CGFloat) -> some View {
+        ZStack(alignment: .topTrailing) {
+            if visible, let cornerAccessory {
+                cornerAccessory
+                    .background(PointerTracker { cornerHover($0) })
+                    .padding(.top, top)
+                    .padding(.trailing, 14)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.92, anchor: .topTrailing)).combined(with: .offset(x: 8)),
+                        removal: .opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing))))
+            }
+        }
+        .animation(visible ? .spring(response: 0.42, dampingFraction: 0.86) : .easeInOut(duration: 0.4), value: visible)
     }
 
     // MARK: Outside layout — nothing covers the picture, so nothing needs to hide.
@@ -168,6 +199,8 @@ struct PlayerSurface<Overlay: View>: View {
                 if settings.showStats {
                     StatsPanel(controller: controller)
                         .padding(12)
+                        // Clear the expanded title card (精选) when it is showing over the picture.
+                        .padding(.top, cardOpen ? headerCardHeight + 14 : 0)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .transition(.opacity)
                 }
@@ -182,6 +215,7 @@ struct PlayerSurface<Overlay: View>: View {
                 case .active:
                     ui.hoveringSurface = true
                     ui.activity()
+                    cornerHover(false)
                 case .ended: ui.pointerLeft()
                 }
             }
@@ -204,10 +238,12 @@ struct PlayerSurface<Overlay: View>: View {
             if cardOpen, let header {
                 PlayerHeaderCard(header: header, ns: headerNS)
                     .onHover { ui.hoveringControls = $0 }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerCardHeight = $0 }
                     .padding(.leading, 18).padding(.top, 38 + 14)
                     .transition(.opacity)
             }
         }
+        .overlay(alignment: .topTrailing) { corner(visible: ui.visible, top: 38 + 14) }
         .animation(cardOpen ? .spring(response: 0.45, dampingFraction: 0.86) : .easeInOut(duration: 0.45), value: cardOpen)
         .onAppear {
             ui.clock = controller.clock
@@ -240,6 +276,8 @@ struct PlayerSurface<Overlay: View>: View {
             .allowsHitTesting(false)
 
             overlay(show)
+            corner(visible: show, top: topInset + 52)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             InteractiveOverlay(controller: controller)
             PhaseOverlay(controller: controller)
             FlashView(controller: controller)
@@ -295,6 +333,7 @@ struct PlayerSurface<Overlay: View>: View {
             case .active:
                 ui.hoveringSurface = true
                 ui.activity()
+                cornerHover(false)
             case .ended: ui.pointerLeft()
             }
         }

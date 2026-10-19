@@ -11,15 +11,11 @@ struct FeaturedView: View {
     /// Comments in a panel on the right (the picture shrinks to make room).
     @State private var showComments = false
     @StateObject private var comments = CommentsModel()
-    /// 「接下来」: a small strip of thumbnails in the top-right corner when a video starts, when it is paused and
-    /// when the mouse moves; hovering it grows it into the full list, and it hides again when left alone.
-    enum NextState { case hidden, compact, expanded }
-    @State private var nextState: NextState = .compact
+    /// 「接下来」 lives in the player's chrome layer with the title card: it shows and hides with it (mouse
+    /// moves, pause, a new video) and grows into the full list while hovered.
+    @State private var nextExpanded = false
     @State private var nextHover = false
-    @State private var nextHide: Task<Void, Never>?
-    /// Paused by the user (not buffering): the strip stays up.
-    @State private var paused = false
-    @State private var lastPointerMove = Date.distantPast
+    @State private var hoverTask: Task<Void, Never>?
 
     /// The copy rendered by RootView when the player fills the window.
     var fullBleed = false
@@ -35,7 +31,7 @@ struct FeaturedView: View {
             let placeholder = !fullBleed && app.playerMode != .normal
             let nextOn = wide && !placeholder && !showComments
             let outside = settings.chromeLayout == .outside
-            let showNext = nextOn && nextState == .expanded && !outside
+            let showNext = false
             let lights = (fullBleed ? app.playerMode == .appFull : settings.railAutoHide) ? 64.0 : 0.0
             HStack(spacing: 0) {
                 ZStack {
@@ -49,7 +45,10 @@ struct FeaturedView: View {
                                       topInset: outside ? 0 : 44, trailingInset: showNext ? 280 : 0,
                                       header: outside ? header : nil, headerLeadingInset: lights,
                                       barAccessory: outside ? AnyView(barActions) : nil,
-                                      expandingHeader: outside, introHold: outside ? 4 : 0) { chromeShown in
+                                      expandingHeader: outside, introHold: outside ? 4 : 0,
+                                      cornerAccessory: nextOn ? AnyView(UpNextDock(feed: feed, expanded: nextExpanded,
+                                                                                  maxHeight: g.size.height - (outside ? 52 : 96) - (outside ? 84 : 16))) : nil,
+                                      onCornerHover: { nextHoverChanged($0) }) { chromeShown in
                             if !outside { featuredOverlay(chromeShown: chromeShown, showNext: showNext) }
                         }
                         .id(ObjectIdentifier(c))
@@ -68,24 +67,6 @@ struct FeaturedView: View {
                         ProgressView().controlSize(.large).tint(.white)
                     }
 
-                    if nextOn && nextState != .hidden {
-                        upNext(expanded: nextState == .expanded, top: outside ? 50 : 92, bottom: outside ? 84 : 16)
-                            .onHover { inside in
-                                nextHover = inside
-                                if inside { setNext(.expanded) } else { setNext(.compact, hideAfter: 2.5) }
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                    }
-                }
-                .animation(Motion.page, value: nextState)
-                // Moving the mouse over the video brings the strip back (throttled; hovering the strip itself
-                // is handled above).
-                .onContinuousHover { phase in
-                    guard nextOn, case .active = phase, nextState != .expanded,
-                          Date().timeIntervalSince(lastPointerMove) > 0.4 else { return }
-                    lastPointerMove = Date()
-                    setNext(.compact, hideAfter: 3)
                 }
                 if showComments && !placeholder {
                     commentsPanel
@@ -101,17 +82,6 @@ struct FeaturedView: View {
         .task { await feed.take() }
         .onAppear { newVideo() }
         .onChange(of: feed.current.map(ObjectIdentifier.init)) { newVideo() }
-        // Pausing shows the strip and keeps it; playing again lets it hide.
-        .task(id: feed.current.map(ObjectIdentifier.init)) {
-            guard let clock = feed.current?.clock else { return }
-            for await (playing, waiting) in clock.$playing.combineLatest(clock.$waiting).removeDuplicates(by: ==).values {
-                let now = !playing && !waiting
-                guard now != paused else { continue }
-                paused = now
-                if now { if nextState == .hidden { setNext(.compact) } }
-                else if nextState == .compact, !nextHover { setNext(.compact, hideAfter: 3) }
-            }
-        }
         // Comments follow the video being played, fetched only while the panel is open.
         .task(id: showComments ? actions.detail?.aid : nil) {
             guard showComments, let d = actions.detail, d.bvid == feed.currentItem?.bvid else { return }
@@ -126,7 +96,7 @@ struct FeaturedView: View {
     }
 
     private func newVideo() {
-        setNext(.compact, hideAfter: 4)
+        nextExpanded = false
         introUntil = Date().addingTimeInterval(4)
         Task {
             try? await Task.sleep(for: .seconds(4.1))
@@ -156,14 +126,14 @@ struct FeaturedView: View {
         .animation(visible ? Motion.pop : .easeOut(duration: 0.4), value: visible)
     }
 
-    /// `hideAfter`: hide then, unless the pointer is on it or the video is paused.
-    private func setNext(_ state: NextState, hideAfter secs: Double? = nil) {
-        nextHide?.cancel()
-        if nextState != state { nextState = state }
-        guard let secs else { return }
-        nextHide = Task {
-            try? await Task.sleep(for: .seconds(secs))
-            if !Task.isCancelled, !nextHover, !paused { nextState = .hidden }
+    /// A short delay each way, so brushing past the panel doesn't make it jump.
+    private func nextHoverChanged(_ inside: Bool) {
+        nextHover = inside
+        hoverTask?.cancel()
+        hoverTask = Task {
+            try? await Task.sleep(for: .milliseconds(inside ? 60 : 220))
+            guard !Task.isCancelled, nextHover == inside else { return }
+            withAnimation(UpNextDock.spring) { nextExpanded = inside }
         }
     }
 
@@ -309,57 +279,6 @@ struct FeaturedView: View {
         .fixedSize()
     }
 
-    @ViewBuilder private func upNext(expanded: Bool, top: CGFloat = 92, bottom: CGFloat = 16) -> some View {
-        if expanded {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(L("接下来")).font(.system(size: 13, weight: .bold)).foregroundStyle(.white.opacity(0.8))
-                ForEach(feed.upNext) { c in
-                    Button { feed.jump(to: c) } label: { UpNextCard(card: c) }
-                        .buttonStyle(.pressableCard)
-                }
-                Spacer()
-                HStack(spacing: 8) {
-                    Button { feed.previous() } label: {
-                        Image(systemName: "chevron.up").font(.system(size: 15, weight: .bold))
-                            .frame(maxWidth: .infinity).frame(height: 40)
-                            .background(.white.opacity(0.12), in: Capsule())
-                    }
-                    .disabled(feed.index == 0)
-                    .help(L("上一个 ↑"))
-                    Button { feed.next() } label: {
-                        Image(systemName: "chevron.down").font(.system(size: 15, weight: .bold)).foregroundStyle(.black)
-                            .frame(maxWidth: .infinity).frame(height: 40)
-                            .background(Theme.pink, in: Capsule())
-                    }
-                    .help(L("下一个 ↓"))
-                }
-                .buttonStyle(.pressable)
-            }
-            .frame(width: 264)
-            .padding(.top, top)
-            .padding(.trailing, 16)
-            .padding(.bottom, bottom)
-        } else {
-            // Small strip: three thumbnails, nothing that covers the picture.
-            VStack(alignment: .trailing, spacing: 6) {
-                Text(L("接下来")).font(.system(size: 10.5, weight: .bold)).foregroundStyle(.white.opacity(0.75))
-                ForEach(feed.upNext) { c in
-                    Button { feed.jump(to: c) } label: {
-                        Color.clear.frame(width: 104, height: 58)
-                            .overlay(RemoteImage(url: thumbnail(c.cover, width: 220)))
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(.white.opacity(0.12)))
-                    }
-                    .buttonStyle(.pressableCard)
-                    .help(c.title)
-                }
-            }
-            .padding(8)
-            .background(.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .padding(.top, top)
-            .padding(.trailing, 14)
-        }
-    }
 }
 
 private struct RoundActionLabel: View {
@@ -390,21 +309,6 @@ private struct RoundAction: View {
         Button(action: action) { RoundActionLabel(icon: icon, text: text, active: active, hover: hover) }
             .buttonStyle(.pressable)
             .onHover { hover = $0 }
-    }
-}
-
-private struct UpNextCard: View {
-    let card: VideoCard
-    @State private var hover = false
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Cover(url: card.cover, width: 400)
-                .overlay(alignment: .bottomTrailing) { DurationBadge(seconds: card.duration) }
-            Text(card.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
-        }
-        .padding(8)
-        .background(.black.opacity(hover ? 0.65 : 0.45), in: RoundedRectangle(cornerRadius: 8))
-        .onHover { hover = $0 }
     }
 }
 
