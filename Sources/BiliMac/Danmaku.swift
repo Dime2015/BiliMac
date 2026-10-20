@@ -141,7 +141,7 @@ struct DanmakuFilter: Equatable {
     static func sender(_ rule: String) -> String? { rule.hasPrefix("u:") ? String(rule.dropFirst(2)) : nil }
 }
 
-/// Lays danmaku out into lanes (time-based, so seeking just works) and draws them on a Canvas.
+/// Lays danmaku out into lanes (time-based, so seeking just works) and says where each one is at a given time.
 final class DanmakuEngine {
     private struct Placed {
         let index: Int
@@ -246,10 +246,17 @@ final class DanmakuEngine {
         return img
     }
 
-    func draw(_ gc: inout GraphicsContext, size: CGSize, time t: Double, list: [Danmaku], settings s: AppSettings) {
-        guard !list.isEmpty, size.width > 50, t.isFinite else { return }
+    struct Sprite {
+        let index: Int
+        let image: CGImage
+        /// Top-left corner, in points from the top-left of the overlay.
+        let origin: CGPoint
+    }
+
+    /// What is on screen at `t`: each danmaku's pre-rendered image and where it goes.
+    func sprites(size: CGSize, time t: Double, list: [Danmaku], settings s: AppSettings) -> [Sprite] {
+        guard !list.isEmpty, size.width > 50, t.isFinite else { return [] }
         layout(list, size: size, s: s)
-        gc.opacity = s.danmakuOpacity
         // First item that could still be on screen.
         var lo = 0, hi = placed.count
         let earliest = t - max(duration, fixedDuration)
@@ -257,6 +264,7 @@ final class DanmakuEngine {
             let m = (lo + hi) / 2
             if placed[m].start < earliest { lo = m + 1 } else { hi = m }
         }
+        var out: [Sprite] = []
         var i = lo
         while i < placed.count, placed[i].start <= t {
             let p = placed[i]
@@ -277,56 +285,184 @@ final class DanmakuEngine {
                 pt = CGPoint(x: (size.width - p.width) / 2, y: size.height - CGFloat(p.lane + 1) * laneHeight - 56)
             }
             guard let img = image(p.index, d, scale: s.danmakuScale) else { continue }
-            gc.draw(Image(decorative: img, scale: 2), at: pt, anchor: .topLeading)
+            out.append(Sprite(index: p.index, image: img, origin: pt))
         }
+        return out
     }
 }
 
 struct DanmakuOverlay: View {
     @ObservedObject var controller: PlayerController
-    @ObservedObject var clock: PlaybackClock
     @ObservedObject private var settings = AppSettings.shared
-    @ObservedObject private var masker: PersonMasker
-    @State private var engine = DanmakuEngine()
-
-    init(controller: PlayerController) {
-        self.controller = controller
-        self.clock = controller.clock
-        masker = controller.masker
-    }
 
     private var avoiding: Bool { settings.danmakuOn && settings.danmakuAvoidPeople && !controller.danmaku.isEmpty }
 
     var body: some View {
         Group {
             if settings.danmakuOn, !controller.danmaku.isEmpty {
-                TimelineView(.animation(minimumInterval: nil, paused: !clock.playing)) { _ in
-                    Canvas { gc, size in
-                        let _ = masker.version
-                        // Own layer, so cutting out the people only clears danmaku pixels.
-                        gc.drawLayer { layer in
-                            engine.draw(&layer, size: size, time: controller.player.currentTime().seconds,
-                                        list: controller.danmaku, settings: settings)
-                            if avoiding, let m = masker.mask {
-                                layer.opacity = 1
-                                layer.blendMode = .destinationOut
-                                layer.draw(Image(decorative: m, scale: 1), in: pictureRect(in: size))
-                            }
-                        }
-                    }
-                }
-                .allowsHitTesting(false)
+                DanmakuLayerView(controller: controller, avoiding: avoiding)
+                    .allowsHitTesting(false)
             }
         }
-        .onAppear { masker.setActive(avoiding) }
-        .onDisappear { masker.setActive(false) }
-        .onChange(of: avoiding) { _, on in masker.setActive(on) }
+        .onAppear { controller.masker.setActive(avoiding) }
+        .onDisappear { controller.masker.setActive(false) }
+        .onChange(of: avoiding) { _, on in controller.masker.setActive(on) }
+    }
+}
+
+/// Moves danmaku on the screen's own refresh (120 Hz on ProMotion). A SwiftUI TimelineView over the player
+/// only got ~20 updates a second, which made them visibly step; here each one is a layer whose position is
+/// set from the player's clock on every display-link frame, so the GPU just recomposites.
+private struct DanmakuLayerView: NSViewRepresentable {
+    @ObservedObject var controller: PlayerController
+    @ObservedObject var clock: PlaybackClock
+    @ObservedObject var settings = AppSettings.shared
+    @ObservedObject var masker: PersonMasker
+    let avoiding: Bool
+
+    init(controller: PlayerController, avoiding: Bool) {
+        self.controller = controller
+        clock = controller.clock
+        masker = controller.masker
+        self.avoiding = avoiding
     }
 
-    /// Where the picture sits inside the overlay (the layer letterboxes with resizeAspect).
-    private func pictureRect(in size: CGSize) -> CGRect {
-        let bounds = CGRect(origin: .zero, size: size)
-        guard let v = controller.video, v.width > 0, v.height > 0 else { return bounds }
-        return AVMakeRect(aspectRatio: CGSize(width: v.width, height: v.height), insideRect: bounds)
+    func makeNSView(context: Context) -> DanmakuNSView { DanmakuNSView() }
+
+    func updateNSView(_ v: DanmakuNSView, context: Context) {
+        v.controller = controller
+        v.avoiding = avoiding
+        v.maskVersion = masker.version
+        v.playing = clock.playing
+        v.render()   // a paused frame still follows seeks, settings and the people mask
     }
+
+    static func dismantleNSView(_ v: DanmakuNSView, coordinator: ()) { v.stop() }
+}
+
+final class DanmakuNSView: NSView {
+    weak var controller: PlayerController?
+    var avoiding = false
+    var maskVersion = -1
+    var playing = false { didSet { link?.isPaused = !playing } }
+
+    private let engine = DanmakuEngine()
+    private let content = CALayer()
+    private let maskLayer = CALayer()
+    private var live: [Int: CALayer] = [:]
+    private var link: CADisplayLink?
+    private var maskKey: (version: Int, size: CGSize, rect: CGRect)?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.addSublayer(content)
+        content.anchorPoint = .zero
+        maskLayer.anchorPoint = .zero
+        maskLayer.contentsGravity = .resize
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { stop(); return }
+        if link == nil {
+            let l = displayLink(target: self, selector: #selector(step))
+            l.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+            l.isPaused = !playing
+            l.add(to: .main, forMode: .common)
+            link = l
+        }
+        render()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        let scale = window?.backingScaleFactor ?? 2
+        content.contentsScale = scale
+        live.values.forEach { $0.contentsScale = scale }
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+    }
+
+    @objc private func step(_ l: CADisplayLink) { render() }
+
+    func render() {
+        guard let controller else { return }
+        let s = AppSettings.shared
+        let size = bounds.size
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        content.frame = bounds
+        content.opacity = Float(s.danmakuOpacity)
+        let sprites = engine.sprites(size: size, time: controller.player.currentTime().seconds,
+                                     list: controller.danmaku, settings: s)
+        var keep = Set<Int>()
+        keep.reserveCapacity(sprites.count)
+        let scale = window?.backingScaleFactor ?? 2
+        for sp in sprites {
+            keep.insert(sp.index)
+            let l: CALayer
+            if let have = live[sp.index] {
+                l = have
+            } else {
+                l = CALayer()
+                l.anchorPoint = .zero
+                l.contentsScale = scale
+                content.addSublayer(l)
+                live[sp.index] = l
+            }
+            if (l.contents as AnyObject?) !== sp.image { l.contents = sp.image }
+            // Images are rendered at 2 px per point.
+            l.bounds = CGRect(x: 0, y: 0, width: CGFloat(sp.image.width) / 2, height: CGFloat(sp.image.height) / 2)
+            l.position = sp.origin
+        }
+        if live.count != keep.count {
+            for (i, l) in live where !keep.contains(i) {
+                l.removeFromSuperlayer()
+                live[i] = nil
+            }
+        }
+        updateMask(size: size)
+    }
+
+    /// Cuts people out: a mask that is clear where the person segmentation is opaque.
+    private func updateMask(size: CGSize) {
+        guard avoiding, let controller, let m = controller.masker.mask, size.width > 0, size.height > 0 else {
+            if content.mask != nil { content.mask = nil; maskKey = nil }
+            return
+        }
+        let rect = pictureRect(in: size, video: controller.video)
+        if let k = maskKey, k.version == maskVersion, k.size == size, k.rect == rect { return }
+        maskKey = (maskVersion, size, rect)
+        // A quarter of the overlay's size is plenty for a soft person outline.
+        let q: CGFloat = 0.25
+        let w = max(1, Int(size.width * q)), h = max(1, Int(size.height * q))
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(),
+                                  bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return }
+        ctx.setFillColor(gray: 0, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setBlendMode(.destinationOut)
+        // CoreGraphics is bottom-up; the overlay is top-down.
+        let r = CGRect(x: rect.minX * q, y: (size.height - rect.maxY) * q, width: rect.width * q, height: rect.height * q)
+        ctx.draw(m, in: r)
+        maskLayer.contents = ctx.makeImage()
+        maskLayer.frame = CGRect(origin: .zero, size: size)
+        if content.mask !== maskLayer { content.mask = maskLayer }
+    }
+}
+
+/// Where the picture sits inside the overlay (the layer letterboxes with resizeAspect).
+private func pictureRect(in size: CGSize, video v: DashTrack?) -> CGRect {
+    let bounds = CGRect(origin: .zero, size: size)
+    guard let v, v.width > 0, v.height > 0 else { return bounds }
+    return AVMakeRect(aspectRatio: CGSize(width: v.width, height: v.height), insideRect: bounds)
 }
