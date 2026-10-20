@@ -78,8 +78,8 @@ final class PlayerController: ObservableObject {
             audioFX.loudnessOn = settings.audioLoudness
             audioFX.voiceOn = settings.audioVoice
             audioFX.staticGainDB = info?.loudnessGainDB.map(Float.init)
-            try await audioFollower.prepare(url: masterURL.deletingLastPathComponent().appendingPathComponent("audio.m4s"),
-                                            fx: audioFX, at: time)
+            guard let data = s.audioData else { throw APIError(description: "no audio data") }
+            try await audioFollower.prepare(data: data, fx: audioFX, at: time)
             return true
         } catch {
             log("audio fx unavailable, playing normally: \(error)")

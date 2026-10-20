@@ -168,9 +168,10 @@ struct Biquad {
 /// Plays the audio in its own AVPlayer so the 音效处理 tap can run (taps are ignored on HLS items),
 /// slaved to the video player: same time, rate, pause state, volume and mute.
 ///
-/// The audio file is served from memory by the local proxy, so this player never stalls; whenever
+/// The audio is played from a temporary file, so this player never stalls; whenever
 /// the video waits or jumps, the audio follows. Small drift is trimmed by nudging the rate (pitch
-/// preserved); anything larger than 120 ms is fixed with an exact seek.
+/// preserved); at 1× anything larger than 120 ms (250 ms just after a start or a speed change) is
+/// fixed by restarting the audio in step.
 @MainActor
 final class AudioFollower {
     let player = AVPlayer()
@@ -180,20 +181,29 @@ final class AudioFollower {
     private var tokens: [NSObjectProtocol] = []
     private var timer: Timer?
     private var seeking = false
-    /// Learned start offset per playback rate: off 1×, the time-pitch unit adds a fixed delay
-    /// (~200 ms at 1.5×), so a plain synced start keeps landing behind by the same amount.
-    private var lead: [Float: Double] = [:]
-    private var learnAfterSync = false
+    /// Bumped by every restart, so a slower one still finishing can't start the audio again.
+    private var restartGen = 0
+    /// Current drift correction, as a fraction of the video's rate.
+    private var trim: Float = 0
+    private var lastRate: Float = 1
+    /// Until then a speed change or a start is still settling: allow more drift before restarting.
+    private var settleUntil: CFTimeInterval = 0
+    private var file: URL?
     private var wasPlaying = false
 
     init() {
         player.automaticallyWaitsToMinimizeStalling = false
     }
 
-    /// Loads the audio file and puts the tap on it. Throws if the track can't be read.
-    func prepare(url: URL, fx: AudioFX, at time: Double) async throws {
+    /// Loads the audio and puts the tap on it. Throws if the track can't be read.
+    /// Played from a temporary file, so its seeks don't go through the local proxy that is busy with the
+    /// video's segments.
+    func prepare(data: Data, fx: AudioFX, at time: Double) async throws {
         stop()
-        let asset = AVURLAsset(url: url)
+        let f = FileManager.default.temporaryDirectory.appendingPathComponent("bilimac-audio-\(UUID().uuidString).mp4")
+        try data.write(to: f)
+        file = f
+        let asset = AVURLAsset(url: f)
         guard let track = try await asset.loadTracks(withMediaType: .audio).first else {
             throw APIError(description: "no audio track")
         }
@@ -237,17 +247,30 @@ final class AudioFollower {
         tokens.removeAll()
         timer?.invalidate()
         timer = nil
+        restartGen += 1
+        seeking = false
         player.pause()
         player.replaceCurrentItem(with: nil)
+        if let file { try? FileManager.default.removeItem(at: file) }
+        file = nil
         main = nil
         active = false
     }
 
     private func sync(hard: Bool) {
         guard active, let main, !seeking else { return }
+        // A speed change makes the audio's time-pitch unit stall for a moment (~0.1 s at 2×): let the trim
+        // below catch that up instead of restarting the audio, which left a gap on every change.
+        if main.rate != 0, main.rate != lastRate { lastRate = main.rate; settleUntil = CACurrentMediaTime() + 1.5 }
+        // The video also reports "waiting" for a moment on a speed change while it keeps going: follow it.
+        if main.rate != 0, player.rate != 0, main.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+           main.reasonForWaitingToPlay == .evaluatingBufferingRate {
+            if abs(player.rate - main.rate * (1 + trim)) > 0.001 { player.rate = main.rate * (1 + trim) }
+            return
+        }
         let playing = main.timeControlStatus == .playing && main.rate != 0
         defer { wasPlaying = playing }
-        let hard = hard || (playing && !wasPlaying)   // just resumed: start exactly in step
+        let resumed = playing && !wasPlaying
         let target = main.currentTime()
         guard target.isValid else { return }
         if !playing {
@@ -256,36 +279,73 @@ final class AudioFollower {
             return
         }
         let drift = player.currentTime().seconds - target.seconds
-        if learnAfterSync {
-            learnAfterSync = false
-            if abs(drift) < 0.6 { lead[main.rate, default: 0] -= drift }
+        if resumed, !hard, player.rate == 0, abs(drift) < 0.06 {
+            // Paused where the video is (the pause seeks it there): just go along with it. No jump and no
+            // gap; the trim takes up the few tens of ms either side. (A timed restart off 1× started up to
+            // half a second late, by a different amount each time.)
+            trim = 0
+            player.rate = main.rate
+            settleUntil = CACurrentMediaTime() + 1.5
+            return
         }
-        if hard || abs(drift) > 0.08 {
+        // Off 1× the audio starts 0.1–0.35 s late by a different amount each time, so a restart can't
+        // fix an offset there (it kept restarting for seconds): only a jump that big restarts it.
+        let limit = main.rate != 1 ? 0.8 : CACurrentMediaTime() < settleUntil ? 0.25 : 0.12
+        if hard || resumed || abs(drift) > limit {
+            trim = 0
             startInSync(with: main)
         } else {
-            // Ahead → slow down a touch, behind → speed up, by at most 4 %.
-            let nudge = abs(drift) > 0.015 ? Float(max(-0.04, min(0.04, -drift * 0.5))) : 0
-            let want = main.rate * (1 + nudge)
+            // Ahead → run slower, behind → faster (pitch preserved), more for a bigger gap. Each rate change
+            // shifts the time-pitch unit by a few tens of ms, so the correction moves in steps: it starts
+            // past 40 ms and holds until back under 10 ms.
+            let a = abs(drift)
+            let step: Float = a > 0.15 ? 0.06 : a > 0.04 ? 0.03 : a < 0.01 ? 0 : abs(trim)
+            trim = (drift > 0 ? -1 : 1) * step
+            let want = main.rate * (1 + trim)
             if abs(player.rate - want) > 0.001 { player.rate = want }
         }
     }
 
-    /// Restarts the audio at a host time a moment ahead, at exactly the position the video's
-    /// timebase will show then — a plain seek-then-play lands ~200 ms late.
-    private func startInSync(with main: AVPlayer) {
-        guard let timebase = main.currentItem?.timebase else { return }
-        let hostClock = CMClockGetHostTimeClock()
-        let start = CMTimeAdd(CMClockGetTime(hostClock), CMTime(seconds: 0.25, preferredTimescale: 1_000_000_000))
-        var at = CMSyncConvertTime(start, from: hostClock, to: timebase)
-        guard at.isValid else { return }
-        at = CMTimeAdd(at, CMTime(seconds: lead[main.rate] ?? 0, preferredTimescale: 600))
+    /// Restarts the audio in step with the video: jump a moment ahead of it, decode up to there
+    /// (preroll), then start at the exact host time the video's timebase reaches that point.
+    /// Lands within ~20 ms at 1×; off 1× it can still start late (see `sync`).
+    private func startInSync(with main: AVPlayer, ahead: Double = 0.2) {
+        guard let item = main.currentItem else { return }
+        let rate = main.rate
+        restartGen += 1
+        let gen = restartGen
         seeking = true
-        learnAfterSync = true
-        player.setRate(main.rate, time: at, atHostTime: start)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in self?.seeking = false }
+        player.pause()
+        let target = CMTimeAdd(main.currentTime(), CMTime(seconds: ahead * Double(rate), preferredTimescale: 600))
+        player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] done in
+            Task { @MainActor in
+                guard let self, gen == self.restartGen else { return }
+                guard done else { self.seeking = false; return }
+                self.player.preroll(atRate: rate) { _ in
+                    Task { @MainActor in
+                        guard gen == self.restartGen else { return }
+                        let host = CMClockGetHostTimeClock()
+                        guard let tb = item.timebase, main.rate == rate, main.currentItem === item else { self.seeking = false; return }
+                        let at = CMSyncConvertTime(target, from: tb, to: host)
+                        let margin = CMTimeSubtract(at, CMClockGetTime(host)).seconds
+                        guard margin > 0.01 else {
+                            // The video got there first: try again further ahead.
+                            self.startInSync(with: main, ahead: min(ahead * 2, 1.2))
+                            return
+                        }
+                        self.player.setRate(rate, time: .invalid, atHostTime: at)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + margin + 0.3) { [weak self] in
+                            guard let self, gen == self.restartGen else { return }
+                            self.seeking = false
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func seek(to t: CMTime, thenRate rate: Float?) {
+        restartGen += 1
         seeking = true
         player.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
             Task { @MainActor in
