@@ -829,7 +829,7 @@ final class InputRouter {
             p.flash("arrow.forward.to.line", "\(digit * 10)%")
             return nil
         }
-        let speeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
+        let speeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]   // no 3×: see the speed menu
         if let p, let c = e.characters, c == "<" || c == ">" {
             let i = speeds.firstIndex(of: p.rate) ?? 2
             p.rate = speeds[max(0, min(speeds.count - 1, i + (c == ">" ? 1 : -1)))]

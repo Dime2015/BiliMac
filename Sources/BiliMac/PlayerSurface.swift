@@ -679,7 +679,8 @@ struct SpeedPicker: View {
         .floatingPanel(id: "speed-\(ObjectIdentifier(controller).hashValue)", isPresented: $open, placement: .above(.center)) {
             MenuSurface(width: 150) {
                 MenuHeader(text: L("播放速度"))
-                ForEach([3.0, 2.0, 1.5, 1.25, 1.0, 0.75, 0.5], id: \.self) { r in
+                // Up to 2×: above that AVPlayer only skims HLS (a key frame every few seconds, no sound).
+                ForEach([2.0, 1.5, 1.25, 1.0, 0.75, 0.5], id: \.self) { r in
                     MenuRow(title: r == 1 ? L("正常") : String(format: "%gx", r), selected: abs(Double(controller.rate) - r) < 0.01) {
                         controller.rate = Float(r)
                         open = false
