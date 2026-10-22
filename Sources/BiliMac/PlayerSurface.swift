@@ -151,7 +151,9 @@ struct PlayerSurface<Overlay: View>: View {
 
     var body: some View {
         Group {
-            if chrome == .full && settings.chromeLayout == .outside { outsideBody } else { overlayBody }
+            // Full screen always uses the overlay layout: the bars fade out while you watch and come back on
+            // a pointer move, a pause or a menu (the outside layout keeps them up, which isn't immersive).
+            if chrome == .full && settings.chromeLayout == .outside && mode != .screenFull { outsideBody } else { overlayBody }
         }
         // The player is always dark, whatever the app's appearance.
         .environment(\.colorScheme, .dark)
