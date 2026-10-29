@@ -38,7 +38,8 @@ final class PersonMasker: ObservableObject, @unchecked Sendable {
         r.outputPixelFormat = kCVPixelFormatType_OneComponent8
         return r
     }()
-    private let ci = CIContext(options: [.cacheIntermediates: false])
+    /// Created on first use (on `queue`): building a CIContext takes ~13 ms, and every player has a masker.
+    private lazy var ci = CIContext(options: [.cacheIntermediates: false])
     private var timer: DispatchSourceTimer?
     private weak var item: AVPlayerItem?
     private var active = false

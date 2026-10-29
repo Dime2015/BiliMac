@@ -89,3 +89,38 @@ struct SlidingChips<Value: Hashable>: View {
         }
     }
 }
+
+/// When the user last scrolled (wheel, trackpad or momentum), set by `InputRouter`.
+@MainActor
+enum ScrollActivity {
+    static var last = Date.distantPast
+    static var active: Bool { Date().timeIntervalSince(last) < 0.15 }
+}
+
+/// Hover lift for grid cards. While a list is scrolling, cards passing under a still pointer don't lift:
+/// each lift is a spring with a shadow, and a fast scroll set one off for every card it passed. A card the
+/// pointer is resting on when scrolling stops lifts then.
+private struct CardHover: ViewModifier {
+    @Binding var hover: Bool
+    @State private var inside = false
+
+    func body(content: Content) -> some View {
+        content.onHover { h in
+            inside = h
+            guard h else {
+                if hover { withAnimation(Motion.pop) { hover = false } }
+                return
+            }
+            guard ScrollActivity.active else { withAnimation(Motion.pop) { hover = true }; return }
+            Task { @MainActor in
+                while ScrollActivity.active { try? await Task.sleep(for: .milliseconds(100)) }
+                if inside { withAnimation(Motion.pop) { hover = true } }
+            }
+        }
+    }
+}
+
+extension View {
+    func cardHover(_ hover: Binding<Bool>) -> some View { modifier(CardHover(hover: hover)) }
+}
+

@@ -36,12 +36,12 @@ struct RootView: View {
             // The normal UI stays alive under the full-window player so pages keep their state.
             Group {
                 VStack(spacing: 8) {
-                    if app.route == .settings {
+                    if app.layoutRoute == .settings {
                         SettingsPage()
                     } else {
                         HStack(spacing: 8) {
-                            if !app.route.usesRail && !compact { Sidebar().frame(width: 300) }
-                            else if !settings.railAutoHide || !app.route.usesRail { IconRail() }
+                            if !app.layoutRoute.usesRail && !compact { Sidebar().frame(width: 300) }
+                            else if !settings.railAutoHide || !app.layoutRoute.usesRail { IconRail() }
                             PageHost().frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
                     }
@@ -53,7 +53,6 @@ struct RootView: View {
                 }
                 .padding(8)
                 .ignoresSafeArea()
-                .animation(Motion.pop, value: app.showsNowPlayingBar)
             }
             .opacity(app.immersive ? 0 : 1)
             .allowsHitTesting(!app.immersive)
@@ -68,7 +67,7 @@ struct RootView: View {
         }
         .overlay(alignment: .leading) {
             // Hot zone starts at the window edge so flicking the pointer left reveals the rail.
-            if !app.immersive, app.route.usesRail, settings.railAutoHide {
+            if !app.immersive, app.layoutRoute.usesRail, settings.railAutoHide {
                 AutoHideRail(bottomInset: app.showsNowPlayingBar ? 100 : 8)
             }
         }
@@ -93,8 +92,8 @@ struct RootView: View {
     /// Where the window buttons go for the current layout.
     private var lightsPlacement: TrafficLights.Placement {
         if app.immersive { return .system }
-        if app.route == .settings { return .sidebar }
-        if app.route.usesRail { return settings.railAutoHide ? .system : .rail }
+        if app.layoutRoute == .settings { return .sidebar }
+        if app.layoutRoute.usesRail { return settings.railAutoHide ? .system : .rail }
         return compact ? .rail : .sidebar
     }
 
@@ -112,8 +111,9 @@ struct RootView: View {
     }
 }
 
-/// Keeps list pages alive between visits (switching back is just a visibility change, no rebuild),
-/// and gives 精选 / video pages a directional spring transition.
+/// Keeps list pages alive between visits (switching back is just a visibility change, no rebuild).
+/// Pages only fade: sliding them moved the scroll views AppKit hosts them in on every frame, and each
+/// move made AppKit recompute the window's drag region, walking the whole view tree every frame.
 private struct PageHost: View {
     @EnvironmentObject var app: AppModel
     @State private var alive: [Route] = []
@@ -128,23 +128,24 @@ private struct PageHost: View {
     var body: some View {
         let current = app.route
         let routes = alive.contains(current) || !Self.cacheable(current) ? alive : alive + [current]
-        ZStack {
+        PageStack {
             ForEach(routes, id: \.self) { r in
                 let on = r == current
-                PageContent(route: r)
+                PageContent(route: r, loggedIn: app.account.loggedIn, firstFavFolder: app.favFolders.first?.id)
+                    .equatable()
                     .opacity(on ? 1 : 0)
-                    .offset(y: on ? 0 : 12)
                     .allowsHitTesting(on)
                     .accessibilityHidden(!on)
                     .zIndex(on ? 1 : 0)
                     .animation(on ? Motion.page : Motion.exit, value: on)
             }
             if !Self.cacheable(current) {
-                PageContent(route: current)
+                PageContent(route: current, loggedIn: app.account.loggedIn, firstFavFolder: app.favFolders.first?.id)
+                    .equatable()
                     .id(current)
                     .zIndex(2)
                     .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .offset(x: app.navForward ? 32 : -32)),
+                        insertion: .opacity,
                         removal: .opacity.animation(Motion.exit)))
             }
         }
@@ -157,14 +158,31 @@ private struct PageHost: View {
     }
 }
 
-private struct PageContent: View {
-    @EnvironmentObject var app: AppModel
+/// Pages on top of each other, each given the host's full size. A ZStack sizes itself by asking every
+/// page how big it wants to be, and to answer, a page measures everything in its scroll view; with up to
+/// six pages kept alive, every page switch measured all of them.
+private struct PageStack: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for s in subviews { s.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size)) }
+    }
+}
+
+/// A page, re-rendered only when what it's given changes. It used to observe the whole app model, so every
+/// kept-alive page (up to six) rebuilt on every change anywhere: four or five times while 精选 opens.
+private struct PageContent: View, Equatable {
+    private var app: AppModel { AppModel.shared }
     let route: Route
+    let loggedIn: Bool
+    let firstFavFolder: Int?
 
     var body: some View {
         let r = route
         // BILIMAC_LIVE_UIDS lets 动态 open signed out, to check the 正在直播 strip.
-        if r.needsLogin && !app.account.loggedIn && !(r == .dynamics && LiveNowCenter.testUIDs != nil) {
+        if r.needsLogin && !loggedIn && !(r == .dynamics && LiveNowCenter.testUIDs != nil) {
             MainPanel { LoginPromptView(what: r == .messages ? L("消息") : L("动态、历史记录、稍后再看和收藏夹")) }
         } else {
             switch r {
@@ -177,7 +195,7 @@ private struct PageContent: View {
                 ListPage(kicker: L("我的"), title: L("历史记录"), subtitle: L("在任意设备上看过的视频"), key: "history")
             case .watchLater:
                 ListPage(kicker: L("我的"), title: L("稍后再看"), subtitle: nil, key: "watchLater") { app.removeFromWatchLater($0) }
-            case .favorites(let id): FavoritesPage(folderID: id ?? app.favFolders.first?.id)
+            case .favorites(let id): FavoritesPage(folderID: id ?? firstFavFolder)
             case .search(let q):
                 SearchPage(query: q).id(q)
             case .video(let card): VideoScreen(card: card).id(card.bvid)

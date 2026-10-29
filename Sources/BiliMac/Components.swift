@@ -333,7 +333,7 @@ struct ShelfCard: View {
         .padding(10)
         .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
-        .onHover { h in withAnimation(Motion.pop) { hover = h } }
+        .cardHover($hover)
     }
 
     /// Search matches in pink, like the website.
@@ -387,7 +387,7 @@ struct QuickTile: View {
         .background(Theme.text.opacity(hover ? 0.12 : 0.06))
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
-        .onHover { h in withAnimation(Motion.pop) { hover = h } }
+        .cardHover($hover)
     }
 
     private var remaining: String {

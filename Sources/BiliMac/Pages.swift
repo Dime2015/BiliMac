@@ -67,12 +67,30 @@ private struct ContinueGrid: View {
 }
 
 struct ShelfGrid: View {
-    /// Not observed: grids should redraw only when their own list changes, not on every app-state change.
-    private var app: AppModel { AppModel.shared }
-    @ObservedObject var list: PagedList
+    let list: PagedList
     var ranked = false
     var emptyText = L("这里还没有内容")
     var removeAction: ((VideoCard) -> Void)? = nil
+
+    /// The grid redraws when its own list changes, not each time the page around it does: a page re-renders
+    /// on every app-state change, and each time the grid re-diffed every card it had.
+    var body: some View {
+        ShelfGridContent(list: list, ranked: ranked, emptyText: emptyText, removeAction: removeAction).equatable()
+    }
+}
+
+private struct ShelfGridContent: View, Equatable {
+    /// Not observed: grids should redraw only when their own list changes, not on every app-state change.
+    private var app: AppModel { AppModel.shared }
+    @ObservedObject var list: PagedList
+    let ranked: Bool
+    let emptyText: String
+    let removeAction: ((VideoCard) -> Void)?
+
+    /// The remove action is always the same call for a given page, so only whether there is one matters.
+    static func == (a: Self, b: Self) -> Bool {
+        a.list === b.list && a.ranked == b.ranked && a.emptyText == b.emptyText && (a.removeAction == nil) == (b.removeAction == nil)
+    }
 
     var body: some View {
         VStack(spacing: 0) {

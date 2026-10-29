@@ -365,7 +365,7 @@ private struct TopVideoCard: View {
         }
         .buttonStyle(.pressableCard)
         .contextMenu { CardMenu(card: card) }
-        .onHover { h in withAnimation(Motion.pop) { hover = h } }
+        .cardHover($hover)
         .padding(.horizontal, -10)
     }
 
@@ -448,7 +448,7 @@ private struct CollectionCard: View {
         .padding(10)
         .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 8))
         .contentShape(Rectangle())
-        .onHover { h in withAnimation(Motion.pop) { hover = h } }
+        .cardHover($hover)
     }
 }
 

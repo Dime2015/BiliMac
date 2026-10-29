@@ -527,7 +527,7 @@ private struct PosterCard: View {
             .foregroundStyle(Theme.meta)
         }
         .contentShape(Rectangle())
-        .onHover { h in withAnimation(Motion.pop) { hover = h } }
+        .cardHover($hover)
     }
 
     private var poster: URL? {

@@ -2,9 +2,13 @@ import SwiftUI
 
 /// Self-drawn menus and panels, used instead of NSMenu / NSPopover so everything matches the app.
 ///
-/// A view attaches `.floatingPanel(...)`; while presented it publishes its bounds and content as a
-/// preference. `FloatingLayer` (applied once at the window root) draws the panel above everything,
-/// so panels are never clipped by rounded page panels or scroll views.
+/// A view attaches `.floatingPanel(...)`; while presented it registers its frame and content with
+/// `FloatingCenter`, and the layer applied once at the window root (`floatingLayer()`) draws the panel
+/// above everything, so panels are never clipped by rounded page panels or scroll views.
+///
+/// This used to be an anchor preference read at the root. Every list in the window (cards, comments)
+/// then had to combine that preference on each update, which was about a third of every page switch,
+/// even with no menu open. Now a closed panel costs nothing and only the root layer observes the center.
 enum FloatingPlacement {
     enum Align { case leading, center, trailing }
     case below(Align)
@@ -15,58 +19,116 @@ enum FloatingPlacement {
 
 struct FloatingItem: Identifiable {
     let id: String
-    let anchor: Anchor<CGRect>
+    /// The anchor view's frame in the root layer's coordinate space.
+    var rect: CGRect
     let placement: FloatingPlacement
-    let content: AnyView
-    let dismiss: () -> Void
-}
-
-struct FloatingKey: PreferenceKey {
-    static var defaultValue: [FloatingItem] = []
-    static func reduce(value: inout [FloatingItem], nextValue: () -> [FloatingItem]) { value += nextValue() }
+    var content: AnyView
+    var dismiss: () -> Void
 }
 
 @MainActor
-final class FloatingCenter {
+final class FloatingCenter: ObservableObject {
     static let shared = FloatingCenter()
-    fileprivate var items: [FloatingItem] = []
-    var isOpen: Bool { !items.isEmpty }
-    func dismissAll() { items.forEach { $0.dismiss() } }
+    static let space = "bilimac.floating"
+
+    /// Registered panels, in the order they opened.
+    private var entries: [FloatingItem] = []
+    /// What the root layer draws: panels whose frame is known.
+    @Published private(set) var items: [FloatingItem] = []
+    private var publishQueued = false
+
+    var isOpen: Bool { !entries.isEmpty }
+    func dismissAll() { entries.forEach { $0.dismiss() } }
+
+    /// Called while a presented source renders, so its content stays live. Publishing waits for the
+    /// end of the current update (changing published state in the middle of one isn't allowed).
+    fileprivate func stage(id: String, placement: FloatingPlacement, content: AnyView, dismiss: @escaping () -> Void) {
+        if let i = entries.firstIndex(where: { $0.id == id }) {
+            entries[i].content = content
+            entries[i].dismiss = dismiss
+        } else {
+            entries.append(FloatingItem(id: id, rect: .null, placement: placement, content: content, dismiss: dismiss))
+        }
+        queuePublish()
+    }
+
+    fileprivate func move(id: String, to rect: CGRect) {
+        guard let i = entries.firstIndex(where: { $0.id == id }), entries[i].rect != rect else { return }
+        entries[i].rect = rect
+        queuePublish()
+    }
+
+    fileprivate func remove(id: String) {
+        entries.removeAll { $0.id == id }
+        queuePublish()
+    }
+
+    private func queuePublish() {
+        guard !publishQueued else { return }
+        publishQueued = true
+        DispatchQueue.main.async { [self] in
+            publishQueued = false
+            items = entries.filter { !$0.rect.isNull }
+        }
+    }
+}
+
+/// Present only while its panel is open (see `floatingPanel`).
+private struct FloatingSource: View {
+    let id: String
+    let placement: FloatingPlacement
+    let content: AnyView
+    let dismiss: () -> Void
+
+    var body: some View {
+        let _ = FloatingCenter.shared.stage(id: id, placement: placement, content: content, dismiss: dismiss)
+        Color.clear
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(FloatingCenter.space)) } action: { r in
+                FloatingCenter.shared.move(id: id, to: r)
+            }
+            .onDisappear { FloatingCenter.shared.remove(id: id) }
+    }
 }
 
 extension View {
     func floatingPanel<C: View>(id: String, isPresented: Binding<Bool>, placement: FloatingPlacement = .below(.leading),
                                 @ViewBuilder content: @escaping () -> C) -> some View {
-        anchorPreference(key: FloatingKey.self, value: .bounds) { a in
-            isPresented.wrappedValue
-                ? [FloatingItem(id: id, anchor: a, placement: placement, content: AnyView(content()),
-                                dismiss: { withAnimation(Motion.exit) { isPresented.wrappedValue = false } })]
-                : []
+        background {
+            if isPresented.wrappedValue {
+                FloatingSource(id: id, placement: placement, content: AnyView(content()),
+                               dismiss: { withAnimation(Motion.exit) { isPresented.wrappedValue = false } })
+            }
         }
     }
 
     /// Apply once at the window root.
     func floatingLayer() -> some View {
-        overlayPreferenceValue(FloatingKey.self) { items in
-            GeometryReader { geo in
-                let _ = FloatingCenter.shared.items = items
-                ZStack(alignment: .topLeading) {
-                    if !items.isEmpty {
-                        // Outside clicks close panels; the anchors themselves stay clickable (toggle buttons, search field).
-                        let holes = items.map { geo[$0.anchor] }
-                        Color.black.opacity(0.001)
-                            .contentShape(Path { p in
-                                p.addRect(CGRect(origin: .zero, size: geo.size))
-                                for h in holes { p.addRect(h) }
-                            }, eoFill: true)
-                            .onTapGesture { items.forEach { $0.dismiss() } }
-                    }
-                    ForEach(items) { item in
-                        FloatingPlaced(item: item, rect: geo[item.anchor], bounds: geo.size)
-                    }
+        coordinateSpace(.named(FloatingCenter.space))
+            .overlay { FloatingLayer(center: FloatingCenter.shared) }
+    }
+}
+
+private struct FloatingLayer: View {
+    @ObservedObject var center: FloatingCenter
+
+    var body: some View {
+        let items = center.items
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                if !items.isEmpty {
+                    // Outside clicks close panels; the anchors themselves stay clickable (toggle buttons, search field).
+                    Color.black.opacity(0.001)
+                        .contentShape(Path { p in
+                            p.addRect(CGRect(origin: .zero, size: geo.size))
+                            for i in items { p.addRect(i.rect) }
+                        }, eoFill: true)
+                        .onTapGesture { items.forEach { $0.dismiss() } }
                 }
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
+                ForEach(items) { item in
+                    FloatingPlaced(item: item, rect: item.rect, bounds: geo.size)
+                }
             }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
         }
     }
 }

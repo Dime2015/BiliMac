@@ -150,7 +150,7 @@ cd BiliMac
 | Key | Action |
 |---|---|
 | Space / K | Play / pause |
-| ← / → | Back / forward 5 s |
+| ← / → | Back / forward 15 s (hold to keep going) |
 | J / L | Back / forward 10 s |
 | ↑ / ↓ | Previous / next in Featured, volume elsewhere |
 | 0 – 9 | Jump to 0 % – 90 % |

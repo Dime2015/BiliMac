@@ -19,7 +19,7 @@ import VideoToolbox
 /// otherwise the normal AVPlayerLayer shows through and nothing here runs.
 final class SuperResLayerView: NSView {
     private let metalLayer = CAMetalLayer()
-    private let device = MTLCreateSystemDefaultDevice()!
+    private let device = SuperResShaders.device
     private lazy var queue = device.makeCommandQueue()!
     private var textureCache: CVMetalTextureCache?
     private var pipeline: MTLRenderPipelineState?
@@ -59,7 +59,8 @@ final class SuperResLayerView: NSView {
         metalLayer.isOpaque = false
         layer = metalLayer
         CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache)
-        buildPipelines()
+        convertPipeline = SuperResShaders.built?.convert
+        pipeline = SuperResShaders.built?.show
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -243,8 +244,14 @@ final class SuperResLayerView: NSView {
                                                   CVPixelBufferGetWidthOfPlane(pb, plane), CVPixelBufferGetHeightOfPlane(pb, plane), plane, &tex)
         return tex.flatMap(CVMetalTextureGetTexture)
     }
+}
 
-    private func buildPipelines() {
+/// Compiled once for the whole app (and warmed up off the main thread at launch): compiling these took
+/// ~120 ms on the main thread, and every player view — each video page, each 精选 item — makes one.
+enum SuperResShaders {
+    static let device = MTLCreateSystemDefaultDevice()!
+
+    static let built: (convert: MTLComputePipelineState, show: MTLRenderPipelineState)? = {
         let src = """
         #include <metal_stdlib>
         using namespace metal;
@@ -274,16 +281,20 @@ final class SuperResLayerView: NSView {
         """
         do {
             let lib = try device.makeLibrary(source: src, options: nil)
-            convertPipeline = try device.makeComputePipelineState(function: lib.makeFunction(name: "yuvToRGB")!)
+            let convert = try device.makeComputePipelineState(function: lib.makeFunction(name: "yuvToRGB")!)
             let d = MTLRenderPipelineDescriptor()
             d.vertexFunction = lib.makeFunction(name: "srQuad")
             d.fragmentFunction = lib.makeFunction(name: "srShow")
             d.colorAttachments[0].pixelFormat = .bgra8Unorm
-            pipeline = try device.makeRenderPipelineState(descriptor: d)
+            return (convert, try device.makeRenderPipelineState(descriptor: d))
         } catch {
             log("super res: shader build failed: \(error)")
+            return nil
         }
-    }
+    }()
+
+    /// Starts compiling in the background so the first player doesn't wait for it.
+    static func warmUp() { Task.detached(priority: .utility) { _ = built } }
 }
 
 /// VideoToolbox low-latency super-resolution for sources up to 1280 px (macOS 26+).

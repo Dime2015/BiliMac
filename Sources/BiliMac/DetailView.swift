@@ -262,7 +262,9 @@ private struct SidePanel: View {
     var body: some View {
         if let base = model.detail {
             let d = actions.detail?.bvid == base.bvid ? actions.detail! : base
-            VStack(alignment: .leading, spacing: 18) {
+            // Lazy, with the 选集 and 相关推荐 rows as its own items: only rows on screen get built, so
+            // a video with 40 related cards (or hundreds of parts) doesn't build them all in one frame.
+            LazyVStack(alignment: .leading, spacing: 4) {
                 VStack(alignment: .leading, spacing: 10) {
                     // The uploader's own banner; their cover tint shows while it loads (or if they have none).
                     Color.clear.frame(height: 96)
@@ -310,10 +312,11 @@ private struct SidePanel: View {
                 .contextMenu {
                     Button(L("查看 UP 主主页")) { app.go(.space(d.ownerMid)) }
                 }
+                .padding(.bottom, 14)
 
 
                 if d.pages.count > 1 {
-                    VStack(alignment: .leading, spacing: 4) {
+                    Group {
                         HStack {
                             Text(L("选集")).font(.system(size: 15, weight: .bold))
                             Spacer()
@@ -342,7 +345,7 @@ private struct SidePanel: View {
                 }
 
                 if !d.related.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
+                    Group {
                         HStack {
                             Text(L("相关推荐")).font(.system(size: 15, weight: .bold))
                             Spacer()
@@ -354,6 +357,7 @@ private struct SidePanel: View {
                             .buttonStyle(.pressable)
                         }
                         .padding(.horizontal, 4).padding(.bottom, 4)
+                        .padding(.top, d.pages.count > 1 ? 14 : 0)
                         ForEach(d.related) { r in
                             Button { app.open(r) } label: { RelatedRow(card: r) }
                                 .buttonStyle(.pressableCard)

@@ -102,6 +102,10 @@ final class AppModel: ObservableObject {
 
     // Navigation
     @Published private(set) var route: Route = .home
+    /// The route the window chrome (sidebar or icon rail, now-playing bar) follows. It changes without
+    /// animation just before `route` does: animating the page area's size made every page, scroll view
+    /// and size reader in it lay out again on every frame of the spring.
+    @Published private(set) var layoutRoute: Route = .home
     @Published private(set) var canBack = false
     @Published private(set) var canForward = false
     private var backStack: [Route] = []
@@ -133,9 +137,11 @@ final class AppModel: ObservableObject {
     private var toastTask: Task<Void, Never>?
 
     func start() async {
+        SuperResShaders.warmUp()
         await BiliAPI.shared.ensureBuvid()
         await refreshAccount()
         if ProcessInfo.processInfo.environment["BILIMAC_NAVBENCH"] != nil { Task { await navBench() } }
+        if ProcessInfo.processInfo.environment["BILIMAC_PERFBENCH"] != nil { Task { await perfBench() } }
         if ProcessInfo.processInfo.environment["BILIMAC_HOMETAB"] == "popular" { homeTab = .popular }
         if let r = Env.route {
             if r == "featured" { go(.featured) }
@@ -195,39 +201,39 @@ final class AppModel: ObservableObject {
 
     // MARK: Navigation
 
-    /// Direction of the last navigation (drives which side pages enter from).
-    @Published private(set) var navForward = true
 
     func go(_ r: Route) {
         guard r != route else { return }
         backStack.append(route)
         forwardStack.removeAll()
-        move(to: r, forward: true)
+        move(to: r)
     }
 
     func goBack() {
         guard let r = backStack.popLast() else { return }
         forwardStack.append(route)
-        move(to: r, forward: false)
+        move(to: r)
     }
 
     func goForward() {
         guard let r = forwardStack.popLast() else { return }
         backStack.append(route)
-        move(to: r, forward: true)
+        move(to: r)
     }
 
-    private func move(to r: Route, forward: Bool) {
-        navForward = forward
+    private func move(to r: Route) {
+        // Leaving a page ends any text editing on it; otherwise the hidden search field
+        // keeps the keyboard and swallows the player's arrow keys.
+        FloatingCenter.shared.dismissAll()
+        if let w = NSApp.keyWindow, let t = w.firstResponder as? NSText, t.isEditable { w.makeFirstResponder(nil) }
+        layoutRoute = r
         withAnimation(Motion.page) { route = r }
-        updateNav()
-        HangRecorder.context.withLock { $0 = "page " + String(String(describing: r).prefix(60)) }
-    }
-
-    private func updateNav() {
+        // Keep a plain change after the animated one: it makes SwiftUI apply the animated update now.
+        // Without it, a switch started from code (not a click) can wait until something else changes.
         canBack = !backStack.isEmpty
         canForward = !forwardStack.isEmpty
-        if playerMode != .normal, !route.usesRail { setPlayerMode(.normal) }
+        if playerMode != .normal, !r.usesRail { setPlayerMode(.normal) }
+        HangRecorder.context.withLock { $0 = "page " + String(String(describing: r).prefix(60)) }
     }
 
     func open(_ card: VideoCard) { go(.video(card)) }
@@ -262,7 +268,7 @@ final class AppModel: ObservableObject {
     /// Whether the bottom bar should show (hidden while the player itself is on screen).
     var showsNowPlayingBar: Bool {
         guard nowPlaying != nil, let card = nowCard else { return false }
-        switch route {
+        switch layoutRoute {
         case .featured: return nowContext != .featured
         case .video(let c): return c.bvid != card.bvid
         default: return true
@@ -773,6 +779,9 @@ final class InputRouter {
     private var accum: CGFloat = 0
     private var firedThisGesture = false
     private var lastFire = Date.distantPast
+    private var lastArrowSeek = Date.distantPast
+    /// Seconds ← / → jump.
+    static let seekStep: Double = 15
 
     private var model: AppModel { AppModel.shared }
     private var featuredActive: Bool { model.route == .featured }
@@ -805,8 +814,13 @@ final class InputRouter {
                 NotificationCenter.default.post(name: .init("BiliMacComposeDanmaku"), object: nil)
                 return nil
             }
-        case 123: if let p { p.seek(by: -5); return nil }           // ←
-        case 124: if let p { p.seek(by: 5); return nil }            // →
+        case 123, 124:                                               // ← →
+            guard let p else { break }
+            // Holding the key repeats ~30×/s; step at most every 0.15 s so it scans instead of flying.
+            if e.isARepeat, Date().timeIntervalSince(lastArrowSeek) < 0.15 { return nil }
+            lastArrowSeek = Date()
+            p.seek(by: e.keyCode == 123 ? -Self.seekStep : Self.seekStep)
+            return nil
         case 53:                                                     // esc
             if FloatingCenter.shared.isOpen { FloatingCenter.shared.dismissAll(); return nil }
             if model.playerMode != .normal { model.exitPlayerMode(); return nil }
@@ -839,6 +853,7 @@ final class InputRouter {
     }
 
     private func scroll(_ e: NSEvent) -> NSEvent? {
+        ScrollActivity.last = Date()
         guard featuredActive, let win = e.window, win.attachedSheet == nil else { return e }
         // Let scroll views (up-next column, menus) keep their own scrolling.
         var v = win.contentView?.hitTest(e.locationInWindow)

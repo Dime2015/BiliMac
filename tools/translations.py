@@ -563,7 +563,7 @@ T = {
 "只能看到通用推荐，最高 480P": ("Generic recommendations only, up to 480p", "一般向けのおすすめのみ、最大 480p"),
 "登录信息保存在 ~/Library/Application Support/BiliMac/cookies.json（仅本人可读），退出登录会删除其中的 SESSDATA。": ("Sign-in cookies are stored in ~/Library/Application Support/BiliMac/cookies.json (readable only by you). Signing out deletes SESSDATA from it.", "ログイン情報は ~/Library/Application Support/BiliMac/cookies.json（本人のみ読み取り可）に保存されます。ログアウトすると SESSDATA は削除されます。"),
 "空格": ("Space", "スペース"),
-"后退 / 前进 5 秒": ("Back / forward 5 s", "5 秒戻る / 進む"),
+"后退 / 前进 15 秒": ("Back / forward 15 s", "15 秒戻る / 進む"),
 "精选中切换上一个 / 下一个，其它页面调节音量": ("Previous / next in Featured; volume elsewhere", "おすすめでは前 / 次、それ以外では音量"),
 "逐级退出全屏": ("Step out of full screen", "全画面を 1 段ずつ終了"),
 "弹幕 · 统计信息 · 静音": ("Danmaku · stats · mute", "コメント · 統計情報 · ミュート"),
