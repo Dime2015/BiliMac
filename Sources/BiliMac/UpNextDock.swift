@@ -35,14 +35,14 @@ struct UpNextDock: View {
                     Button { feed.previous() } label: {
                         Image(systemName: "chevron.up").font(.system(size: 14, weight: .bold))
                             .frame(maxWidth: .infinity).frame(height: 34)
-                            .background(.white.opacity(0.12), in: Capsule())
+                            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: Self.innerRadius(expanded), style: .continuous))
                     }
                     .disabled(feed.index == 0)
                     .help(L("上一个 ↑"))
                     Button { feed.next() } label: {
                         Image(systemName: "chevron.down").font(.system(size: 14, weight: .bold)).foregroundStyle(.black)
                             .frame(maxWidth: .infinity).frame(height: 34)
-                            .background(Theme.pink, in: Capsule())
+                            .background(Theme.pink, in: RoundedRectangle(cornerRadius: Self.innerRadius(expanded), style: .continuous))
                     }
                     .help(L("下一个 ↓"))
                 }
@@ -51,18 +51,24 @@ struct UpNextDock: View {
                 .transition(.opacity.combined(with: .offset(y: -6)))
             }
         }
-        .padding(expanded ? 12 : 8)
-        .frame(width: thumb.width + (expanded ? 24 : 16))
+        .padding(Self.padding(expanded))
+        .frame(width: thumb.width + Self.padding(expanded) * 2)
         .background {
-            RoundedRectangle(cornerRadius: expanded ? 16 : 11, style: .continuous)
+            RoundedRectangle(cornerRadius: Self.outerRadius(expanded), style: .continuous)
                 .fill(.black.opacity(expanded ? 0.66 : 0.42))
-                .overlay(RoundedRectangle(cornerRadius: expanded ? 16 : 11, style: .continuous).strokeBorder(.white.opacity(0.09)))
+                .overlay(RoundedRectangle(cornerRadius: Self.outerRadius(expanded), style: .continuous).strokeBorder(.white.opacity(0.09)))
                 .shadow(color: .black.opacity(expanded ? 0.45 : 0.25), radius: expanded ? 24 : 10, y: expanded ? 10 : 4)
         }
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Self.outerRadius(expanded), style: .continuous))
         .environment(\.colorScheme, .dark)
         .animation(Self.spring, value: expanded)
     }
+
+    // Concentric corners: the thumbnails (and the ↑ ↓ buttons) keep their radius, and the dock's own
+    // corner is that radius plus the padding around them.
+    static func innerRadius(_ expanded: Bool) -> CGFloat { expanded ? 10 : 6 }
+    static func padding(_ expanded: Bool) -> CGFloat { expanded ? 12 : 8 }
+    static func outerRadius(_ expanded: Bool) -> CGFloat { innerRadius(expanded) + padding(expanded) }
 
     private struct Item: View {
         let card: VideoCard
@@ -81,8 +87,8 @@ struct UpNextDock: View {
                             DurationBadge(seconds: card.duration)
                                 .opacity(expanded ? 1 : 0)
                         }
-                        .clipShape(RoundedRectangle(cornerRadius: expanded ? 10 : 6, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: expanded ? 10 : 6, style: .continuous)
+                        .clipShape(RoundedRectangle(cornerRadius: UpNextDock.innerRadius(expanded), style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: UpNextDock.innerRadius(expanded), style: .continuous)
                             .strokeBorder(.white.opacity(hover ? 0.35 : 0.1)))
                         .brightness(hover ? 0.05 : 0)
                     if expanded {

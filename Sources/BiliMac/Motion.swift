@@ -124,3 +124,86 @@ extension View {
     func cardHover(_ hover: Binding<Bool>) -> some View { modifier(CardHover(hover: hover)) }
 }
 
+// MARK: - Layouts that don't measure their children
+//
+// A stack asks every child how big it wants to be whenever anything inside any child re-lays out. Next to a
+// player that ticks (time, bitrate) or a list that scrolls or grows, that measured the other side every time:
+// 精选's comment rows were measured again on every chrome update, and the player's bars on every scroll step.
+
+/// Main content on the left, a fixed-width panel on the right, each told its size outright.
+struct SideBySide: Layout {
+    var panelWidth: CGFloat
+    var spacing: CGFloat = 8
+    /// 0…1: how far the panel is in (animatable, so the content shrinks as the panel slides in).
+    var shown: CGFloat = 1
+    var animatableData: CGFloat {
+        get { shown }
+        set { shown = newValue }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let inset = (panelWidth + spacing) * shown
+        subviews.first?.place(at: b.origin, anchor: .topLeading, proposal: ProposedViewSize(width: b.width - inset, height: b.height))
+        for s in subviews.dropFirst() {
+            s.place(at: CGPoint(x: b.maxX - inset + spacing, y: b.minY), anchor: .topLeading,
+                    proposal: ProposedViewSize(width: panelWidth, height: b.height))
+        }
+    }
+}
+
+/// Children on top of each other, each given the full size (a ZStack that never asks them how big they want to be).
+struct FillStack: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for s in subviews { s.place(at: b.origin, anchor: .topLeading, proposal: ProposedViewSize(b.size)) }
+    }
+}
+
+/// The first of `levels` variants that fits the width it's given (variant 0 the fullest), trailing-aligned. Unlike
+/// ViewThatFits it builds only the variant it shows: the player's control row has five, and every player that
+/// appears (entering or leaving 应用内全屏 makes one) built all five — 200–300 ms of a frozen switch.
+/// Each variant's width is remembered once seen, so widening steps back without trying variants that don't fit.
+struct AdaptiveRow<Content: View>: View {
+    let levels: Int
+    let height: CGFloat
+    @ViewBuilder let content: (Int) -> Content
+    @State private var level = 0
+    @State private var widths: [Int: CGFloat] = [:]
+    @State private var available: CGFloat = .infinity
+
+    var body: some View {
+        let shown = level
+        let fits = (widths[shown] ?? 0) <= available + 0.5 || shown == levels - 1
+        // Over a placeholder that takes the space left: the row's own changes never re-lay out the bar around it.
+        Color.clear
+            .frame(maxWidth: .infinity, minHeight: height, maxHeight: height)
+            .overlay(alignment: .trailing) {
+                content(shown)
+                    .fixedSize()
+                    // A fresh view per variant, so a width is always filed under the variant it was measured from
+                    // (a reused one reported the next variant's width under the previous level, and the row overlapped).
+                    .id(shown)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+                        widths[shown] = w
+                        settle()
+                    }
+                    .opacity(fits ? 1 : 0)   // a variant found too wide is hidden for the moment it takes to step down
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { w in
+                available = w
+                settle()
+            }
+    }
+
+    private func settle() {
+        if let w = widths[level], w > available + 0.5, level < levels - 1 { level += 1; return }
+        if level > 0, widths[level - 1].map({ $0 <= available + 0.5 }) ?? true { level -= 1 }
+    }
+}

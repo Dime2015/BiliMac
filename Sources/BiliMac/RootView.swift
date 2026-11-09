@@ -30,8 +30,14 @@ struct RootView: View {
         }
     }
 
-    var body: some View {
-        ZStack {
+    /// The window's layers: background, the normal UI, and the full-window player over it. A ZStack here asked the
+    /// hidden UI (every kept-alive page, measuring its whole scroll view) for its size on each update of the
+    /// full-window player: 100–400 ms freezes four times a second in 应用内全屏, and through every frame of entering it.
+    private var rootStack: some View {
+        FillStack { rootLayers }.ignoresSafeArea()
+    }
+
+    @ViewBuilder private var rootLayers: some View {
             Theme.ground.ignoresSafeArea()
             // The normal UI stays alive under the full-window player so pages keep their state.
             Group {
@@ -64,7 +70,10 @@ struct RootView: View {
                     .zIndex(5)
                     .transition(.opacity)
             }
-        }
+    }
+
+    var body: some View {
+        rootStack
         .overlay(alignment: .leading) {
             // Hot zone starts at the window edge so flicking the pointer left reveals the rail.
             if !app.immersive, app.layoutRoute.usesRail, settings.railAutoHide {
@@ -99,15 +108,29 @@ struct RootView: View {
 
     @ViewBuilder private var toast: some View {
         if let t = app.toast {
-            Text(t)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Theme.panel)
-                .padding(.horizontal, 16).padding(.vertical, 9)
-                .background(Theme.text, in: Capsule())
-                .shadow(color: Theme.shadow, radius: 12, y: 4)
-                .padding(.top, 18)
-                .transition(.move(edge: .top).combined(with: .scale(scale: 0.8)).combined(with: .opacity))
+            Group {
+                if app.toastAction != nil {
+                    Button { app.runToastAction() } label: { toastPill(t, action: true) }.buttonStyle(.pressable)
+                } else {
+                    toastPill(t, action: false)
+                }
+            }
+            .shadow(color: Theme.shadow, radius: 12, y: 4)
+            .padding(.top, 18)
+            .transition(.move(edge: .top).combined(with: .scale(scale: 0.8)).combined(with: .opacity))
         }
+    }
+
+    private func toastPill(_ t: String, action: Bool) -> some View {
+        HStack(spacing: 10) {
+            Text(t)
+            if action { Text(L("查看 ›")).foregroundStyle(Theme.pink) }
+        }
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(Theme.panel)
+        .padding(.horizontal, 16).padding(.vertical, 9)
+        .background(Theme.text, in: Capsule())
+        .contentShape(Capsule())
     }
 }
 
@@ -128,7 +151,9 @@ private struct PageHost: View {
     var body: some View {
         let current = app.route
         let routes = alive.contains(current) || !Self.cacheable(current) ? alive : alive + [current]
-        PageStack {
+        // Pages on top of each other at the host's full size: a ZStack measured every kept-alive page (up to six,
+        // each measuring everything in its scroll view) on every switch.
+        FillStack {
             ForEach(routes, id: \.self) { r in
                 let on = r == current
                 PageContent(route: r, loggedIn: app.account.loggedIn, firstFavFolder: app.favFolders.first?.id)
@@ -155,19 +180,6 @@ private struct PageHost: View {
             alive.append(current)
             if alive.count > 6 { alive.removeFirst(alive.count - 6) }
         }
-    }
-}
-
-/// Pages on top of each other, each given the host's full size. A ZStack sizes itself by asking every
-/// page how big it wants to be, and to answer, a page measures everything in its scroll view; with up to
-/// six pages kept alive, every page switch measured all of them.
-private struct PageStack: Layout {
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        proposal.replacingUnspecifiedDimensions()
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for s in subviews { s.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(bounds.size)) }
     }
 }
 
@@ -669,12 +681,17 @@ struct NowPlayingBar: View {
     private var right: some View {
         HStack(spacing: 14) {
             if settings.infoOverlay != .off {
-                TimelineView(.periodic(from: .now, by: 1)) { _ in
-                    Text(player.badge).font(Theme.mono).foregroundStyle(Theme.text2)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 4))
-                        .lineLimit(1)
-                }
+                // The bitrate changes every second. The bar sits under every page, so the text is drawn over a
+                // placeholder that only changes with the quality / codec / line: a tick can't re-lay out the window.
+                Text(player.badgeTemplate).font(Theme.mono).hidden()
+                    .overlay(alignment: .leading) {
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
+                            Text(player.badge).font(Theme.mono).foregroundStyle(Theme.text2).fixedSize()
+                        }
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Theme.elevated, in: RoundedRectangle(cornerRadius: 4))
+                    .lineLimit(1)
             }
             Button { withAnimation(Motion.pop) { showStats.toggle() } } label: {
                 Image(systemName: "chart.xyaxis.line").font(.system(size: 15)).foregroundStyle(showStats ? Theme.pink : Theme.text2)
@@ -691,6 +708,11 @@ struct NowPlayingBar: View {
             }
             .buttonStyle(.pressable)
             .help(L("展开播放器"))
+            Button { withAnimation(Motion.page) { app.closeNowPlaying() } } label: {
+                Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text2)
+            }
+            .buttonStyle(.pressable)
+            .help(L("关闭播放器"))
         }
     }
 }
@@ -769,6 +791,9 @@ struct LoginPromptView: View {
 }
 
 struct LoginView: View {
+    /// `.appFeed` authorizes the phone feed for 首页 (a TV-style login) instead of signing in.
+    enum Kind { case web, appFeed }
+    var kind: Kind = .web
     let done: (Bool) -> Void
     @State private var qr: NSImage?
     @State private var message = L("正在获取二维码…")
@@ -778,7 +803,7 @@ struct LoginView: View {
     var body: some View {
         VStack(spacing: 16) {
             LogoMark(size: 40)
-            Text(L("扫码登录哔哩哔哩")).font(.system(size: 20, weight: .black))
+            Text(kind == .web ? L("扫码登录哔哩哔哩") : L("授权手机端推荐")).font(.system(size: 20, weight: .black))
             ZStack {
                 RoundedRectangle(cornerRadius: 12).fill(.white)
                 if let qr {
@@ -791,6 +816,10 @@ struct LoginView: View {
             .frame(width: 220, height: 220)
             Text(message).font(.system(size: 14, weight: .semibold))
             Text(L("打开哔哩哔哩手机客户端，在「我的」右上角扫一扫")).font(.system(size: 12.5)).foregroundStyle(Theme.text2)
+            if kind == .appFeed {
+                Text(L("扫码后首页「推荐」会改用手机端的推荐，跟着你最近的观看实时变化。B 站账号的登录设备里会多一台「电视」。"))
+                    .font(.system(size: 12)).foregroundStyle(Theme.text3).multilineTextAlignment(.center)
+            }
             HStack(spacing: 10) {
                 PillButton(title: L("取消")) { task?.cancel(); done(false) }
                 PillButton(title: L("刷新二维码"), filled: true, tint: Theme.primary) { start() }
@@ -807,6 +836,7 @@ struct LoginView: View {
         task?.cancel()
         scanned = false
         task = Task { @MainActor in
+            if kind == .appFeed { await runAppFeed(); return }
             do {
                 let (url, key) = try await BiliAPI.shared.qrGenerate()
                 qr = Self.qrImage(url)
@@ -824,6 +854,30 @@ struct LoginView: View {
             } catch {
                 if !Task.isCancelled { message = error.localizedDescription }
             }
+        }
+    }
+
+    private func runAppFeed() async {
+        do {
+            let (url, code) = try await AppAPI.qrGenerate()
+            qr = Self.qrImage(url)
+            message = L("等待扫码…")
+            while !Task.isCancelled {
+                try await Task.sleep(for: .seconds(2))
+                switch try await AppAPI.qrPoll(code: code) {
+                case .waiting: break
+                case .scanned: scanned = true; message = L("已扫码，请在手机上确认")
+                case .expired: message = L("二维码已过期，请刷新"); return
+                case .done(let token):
+                    AppFeedAuth.shared.save(token)
+                    message = L("授权成功")
+                    done(true)
+                    return
+                case .other(let c, let m): message = Lf("授权失败 %@ %@", "\(c)", "\(m)"); return
+                }
+            }
+        } catch {
+            if !Task.isCancelled { message = error.localizedDescription }
         }
     }
 

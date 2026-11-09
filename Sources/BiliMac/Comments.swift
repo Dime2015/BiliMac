@@ -98,6 +98,19 @@ final class CommentsModel: ObservableObject {
 
 struct CommentsSection: View {
     @ObservedObject var model: CommentsModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            CommentsHeader(model: model)
+            CommentsList(model: model)
+        }
+        .frame(maxWidth: 820, alignment: .leading)
+        .padding(.top, 8)
+    }
+}
+
+/// Title, sort chips and the composer. The 精选 side panel keeps it above its scrolling list.
+struct CommentsHeader: View {
+    @ObservedObject var model: CommentsModel
     /// Side-panel use (精选): a close button after the sort chips.
     var onClose: (() -> Void)? = nil
     var body: some View {
@@ -118,33 +131,50 @@ struct CommentsSection: View {
                 }
             }
             CommentComposer(placeholder: L("发一条友善的评论"), autofocus: false) { await model.post($0) }
-                .padding(.bottom, 4)
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(model.comments) { c in
-                    CommentRow(c: c, model: model)
-                        .onAppear { if c.id == model.comments.last?.id { Task { await model.more() } } }
-                }
-            }
-            HStack {
-                Spacer()
-                if model.loading { ProgressView().controlSize(.small) }
-                else if model.error != nil {
-                    PillButton(title: L("评论加载失败，重试")) { Task { await model.more() } }
-                } else if model.end {
-                    Text(model.comments.isEmpty ? L("还没有评论") : L("没有更多评论了")).font(.system(size: 13)).foregroundStyle(Theme.text3)
-                }
-                Spacer()
-            }
-            .padding(.vertical, 10)
         }
-        .frame(maxWidth: 820, alignment: .leading)
-        .padding(.top, 8)
     }
 }
 
+/// The comments, loading more at the end, and the status line under them.
+struct CommentsList: View {
+    @ObservedObject var model: CommentsModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(model.comments) { c in
+                    CommentRow(c: c, model: model, replying: model.replyingTo == c.id)
+                        .onAppear { if c.id == model.comments.last?.id { Task { await model.more() } } }
+                }
+            }
+            CommentsFooter(model: model)
+        }
+    }
+}
+
+/// Loading / retry / end of the list.
+private struct CommentsFooter: View {
+    @ObservedObject var model: CommentsModel
+    var body: some View {
+        HStack {
+            Spacer()
+            if model.loading { ProgressView().controlSize(.small) }
+            else if model.error != nil {
+                PillButton(title: L("评论加载失败，重试")) { Task { await model.more() } }
+            } else if model.end {
+                Text(model.comments.isEmpty ? L("还没有评论") : L("没有更多评论了")).font(.system(size: 13)).foregroundStyle(Theme.text3)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 10)
+    }
+}
+
+/// Not observing the model: every page load (and each like or reply box) would re-render all visible rows.
+/// The list passes in what a row shows.
 struct CommentRow: View {
     let c: Comment
-    @ObservedObject var model: CommentsModel
+    let model: CommentsModel
+    let replying: Bool
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Button { if c.mid > 0 { AppModel.shared.go(.space(c.mid)) } } label: { Avatar(url: c.avatar, size: 36) }
@@ -166,9 +196,17 @@ struct CommentRow: View {
                             .padding(.horizontal, 4).background(Theme.pink, in: RoundedRectangle(cornerRadius: 3))
                     }
                 }
-                Text(c.message).font(.system(size: 14)).lineSpacing(4).textSelection(.enabled)
+                // Not selectable: selectable text made every row costlier to lay out and scroll. 拷贝评论 is in the context menu.
+                Text(c.message).font(.system(size: 14)).lineSpacing(4)
+                    .contextMenu {
+                        Button(L("拷贝评论")) {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(c.message, forType: .string)
+                        }
+                    }
                 HStack(spacing: 6) {
-                    Text(formatRelativeDate(c.ctime))
+                    Text(formatRelativeDate(c.ctime)).fixedSize()
+                    if let loc = c.location { Text(Lf("IP属地 %@", loc)).fixedSize().padding(.leading, 4) }
                     Button { model.toggleLike(c) } label: {
                         HStack(spacing: 3) {
                             Image(systemName: c.liked ? "hand.thumbsup.fill" : "hand.thumbsup")
@@ -176,19 +214,21 @@ struct CommentRow: View {
                         }
                         .foregroundStyle(c.liked ? Theme.pink : Theme.text3)
                         .contentShape(Rectangle())
+                        .fixedSize()
                     }
                     .buttonStyle(.pressable)
                     .padding(.leading, 8)
                     Button { withAnimation(Motion.pop) { model.replyingTo = model.replyingTo == c.id ? nil : c.id } } label: {
-                        Text(L("回复")).foregroundStyle(model.replyingTo == c.id ? Theme.pink : Theme.text3).contentShape(Rectangle())
+                        Text(L("回复")).foregroundStyle(replying ? Theme.pink : Theme.text3).contentShape(Rectangle()).fixedSize()
                     }
                     .buttonStyle(.pressable)
                     .padding(.leading, 8)
-                    if c.rcount > 0 { Text("·").padding(.leading, 4); Text(Lf("共 %@ 条回复", "\(c.rcount)")) }
+                    // The only part that may shorten when the row is tight; the rest keep to one line.
+                    if c.rcount > 0 { Text("·").padding(.leading, 4); Text(Lf("共 %@ 条回复", "\(c.rcount)")).lineLimit(1) }
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.text3)
-                if model.replyingTo == c.id {
+                if replying {
                     CommentComposer(placeholder: Lf("回复 @%@：", c.uname), autofocus: true, compact: true) {
                         await model.post($0, root: c.id)
                     }

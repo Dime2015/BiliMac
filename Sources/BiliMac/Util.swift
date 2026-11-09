@@ -22,6 +22,8 @@ enum Env {
     static let openDanmakuPanel = e["BILIMAC_DANMAKU_PANEL"] != nil
     /// Open UP 主主页 on a tab: videos | collections (screenshots / checks).
     static let spaceTab = e["BILIMAC_SPACE_TAB"]
+    /// Benchmarks: show the window without activating the app, so the Mac stays usable while one runs.
+    static let benchQuiet = e["BILIMAC_BENCH_QUIET"] != nil
     /// Window content size, e.g. 1440x900.
     static let windowSize: CGSize? = e["BILIMAC_WINDOW"].flatMap { s in
         let p = s.split(separator: "x").compactMap { Double($0) }
@@ -174,10 +176,13 @@ func formatRelativeDate(_ d: Date?) -> String {
     if secs < 3600 { return Lf("%@分钟前", "\(Int(secs / 60))") }
     if secs < 86400 { return Lf("%@小时前", "\(Int(secs / 3600))") }
     if secs < 86400 * 2 { return L("昨天") }
-    let f = DateFormatter()
-    f.dateFormat = Calendar.current.isDate(d, equalTo: Date(), toGranularity: .year) ? "M-d" : "yyyy-M-d"
+    let f = Calendar.current.isDate(d, equalTo: Date(), toGranularity: .year) ? relativeDateThisYear : relativeDateOlder
     return f.string(from: d)
 }
+
+// Made once: comment and card rows format dates while they lay out.
+private let relativeDateThisYear: DateFormatter = { let f = DateFormatter(); f.dateFormat = "M-d"; return f }()
+private let relativeDateOlder: DateFormatter = { let f = DateFormatter(); f.dateFormat = "yyyy-M-d"; return f }()
 
 func formatBitrate(_ bps: Double) -> String {
     if bps <= 0 { return "-" }

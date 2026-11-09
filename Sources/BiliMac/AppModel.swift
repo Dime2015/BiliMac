@@ -56,6 +56,8 @@ final class PagedList: ObservableObject {
     /// Cards that already played their entrance animation.
     var revealed: Set<String> = []
     private var state: [String: String] = [:]
+    /// When the first page of the current contents arrived (首页 refreshes itself when this gets old).
+    private(set) var loadedAt: Date?
     private let fetch: ([String: String]) async throws -> (items: [VideoCard], state: [String: String], more: Bool)
     private var generation = 0
 
@@ -70,8 +72,10 @@ final class PagedList: ObservableObject {
         loading = true
         let gen = generation
         do {
+            let first = state.isEmpty
             let r = try await fetch(state)
             guard gen == generation else { return }
+            if first { loadedAt = Date() }
             let seen = Set(items.map(\.bvid))
             items += r.items.filter { !seen.contains($0.bvid) }
             state = r.state
@@ -90,6 +94,7 @@ final class PagedList: ObservableObject {
         exhausted = false
         error = nil
         loading = false
+        loadedAt = nil
         await loadMore()
     }
 
@@ -119,6 +124,12 @@ final class AppModel: ObservableObject {
     @Published var favFolders: [FavFolder] = []
     @Published var showLogin = false
     @Published var toast: String?
+    /// Runs when the toast is clicked (it then shows longer, with a 「查看」 hint).
+    private(set) var toastAction: (() -> Void)?
+    /// A settings section to scroll to when 设置 opens (its title, e.g. "账号").
+    var settingsFocus: String?
+    /// The phone-feed fallback is announced once per launch.
+    private var announcedFeedFallback = false
 
     // Now playing (one player at a time, like a music app)
     @Published private(set) var nowPlaying: PlayerController?
@@ -199,6 +210,33 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: 首页 freshness
+
+    /// Related videos of what was watched lately (newest first), led into the web feed's next first page.
+    private var recentRelated: [VideoCard] = []
+
+    /// Called when a video page has its details.
+    func noteWatched(_ d: VideoDetail) {
+        let fresh = d.related.prefix(4).filter { $0.bvid != d.bvid }
+        recentRelated.removeAll { r in fresh.contains { $0.bvid == r.bvid } }
+        recentRelated.insert(contentsOf: fresh, at: 0)
+        recentRelated = Array(recentRelated.prefix(8))
+    }
+
+    fileprivate func relatedFirst(_ cards: [VideoCard]) -> [VideoCard] {
+        let lead = Array(recentRelated.prefix(4))
+        guard !lead.isEmpty else { return cards }
+        recentRelated.removeFirst(lead.count)
+        let ids = Set(lead.map(\.bvid))
+        return lead.map { c in var c = c; c.reason = L("看过的相关"); return c } + cards.filter { !ids.contains($0.bvid) }
+    }
+
+    /// Back on 首页 after a while: show a new batch, as the phone app does when you come back to it.
+    private func refreshHomeIfStale() {
+        guard homeTab == .recommend, let l = lists["home"], let t = l.loadedAt, Date().timeIntervalSince(t) > 10 * 60 else { return }
+        Task { await l.reload() }
+    }
+
     // MARK: Navigation
 
 
@@ -221,6 +259,20 @@ final class AppModel: ObservableObject {
         move(to: r)
     }
 
+    /// The page before this one is a video too (this one was opened from its 推荐).
+    var backIsVideo: Bool {
+        if case .video? = backStack.last { return true }
+        return false
+    }
+
+    /// ✕ / minimise on a video page: past every video opened one from another, back to the page the first was
+    /// opened from. 前进 walks through them again.
+    func leaveVideos() {
+        forwardStack.append(route)
+        while case .video? = backStack.last { forwardStack.append(backStack.removeLast()) }
+        move(to: backStack.popLast() ?? .home)
+    }
+
     private func move(to r: Route) {
         // Leaving a page ends any text editing on it; otherwise the hidden search field
         // keeps the keyboard and swallows the player's arrow keys.
@@ -228,6 +280,7 @@ final class AppModel: ObservableObject {
         if let w = NSApp.keyWindow, let t = w.firstResponder as? NSText, t.isEditable { w.makeFirstResponder(nil) }
         layoutRoute = r
         withAnimation(Motion.page) { route = r }
+        if r == .home { refreshHomeIfStale() }
         // Keep a plain change after the animated one: it makes SwiftUI apply the animated update now.
         // Without it, a switch started from code (not a click) can wait until something else changes.
         canBack = !backStack.isEmpty
@@ -324,6 +377,15 @@ final class AppModel: ObservableObject {
         if changed { Task { await nowActions.load(bvid: card.bvid) } }
     }
 
+    /// ✕: stop what's playing and drop the bottom bar. 精选 keeps its player (paused) and takes it back when opened.
+    func closeNowPlaying() {
+        guard let p = nowPlaying else { return }
+        if featured.owns(p) { p.pause() } else { p.stop() }
+        nowPlaying = nil
+        nowCard = nil
+        InputRouter.shared.player = nil
+    }
+
     private func playbackEnded() {
         switch nowContext {
         case .featured: if AppSettings.shared.featuredAutoNext { featured.next() }
@@ -405,12 +467,31 @@ final class AppModel: ObservableObject {
         notify(L("已退出登录"))
     }
 
-    func notify(_ s: String) {
+    func notify(_ s: String, action: (() -> Void)? = nil) {
+        toastAction = action
         withAnimation(Motion.pop) { toast = s }
         toastTask?.cancel()
         toastTask = Task {
-            try? await Task.sleep(for: .seconds(2.2))
+            try? await Task.sleep(for: .seconds(action == nil ? 2.2 : 6))
             if !Task.isCancelled { withAnimation { toast = nil } }
+        }
+    }
+
+    func runToastAction() {
+        let a = toastAction
+        toastTask?.cancel()
+        withAnimation { toast = nil }
+        a?()
+    }
+
+    /// 首页 fell back from the phone feed to the web one (risk control, an expired authorization, a network
+    /// error): say so once, with a way to the account settings where the reason is shown.
+    fileprivate func announceFeedFallback() {
+        guard !announcedFeedFallback else { return }
+        announcedFeedFallback = true
+        notify(L("手机端推荐暂时不可用，已改用网页推荐")) { [weak self] in
+            self?.settingsFocus = "账号"
+            self?.go(.settings)
         }
     }
 
@@ -438,9 +519,26 @@ final class AppModel: ObservableObject {
         let l: PagedList
         switch key {
         case "home":
-            l = PagedList { s in
+            l = PagedList { [weak self] s in
+                // The phone feed while authorized; if it fails, this page (and the rest) come from the web feed.
+                let auth = AppFeedAuth.shared
+                if AppSettings.shared.appFeed, s["src"] != "web", auth.authorized {
+                    do {
+                        let token = try await auth.validToken()
+                        let r = try await AppAPI.feed(token: token, idx: Int(s["idx"] ?? "0") ?? 0)
+                        auth.lastError = nil
+                        return (r.cards, ["src": "app", "idx": "\(r.next)"], true)
+                    } catch {
+                        log("app feed: \(error)")
+                        auth.lastError = error.localizedDescription
+                        self?.announceFeedFallback()
+                    }
+                }
                 let p = Int(s["p"] ?? "1")!
-                return (try await api.homeRecommend(page: p), ["p": "\(p + 1)"], true)
+                var cards = try await api.homeRecommend(page: p)
+                // The web feed hardly reacts to what was just watched, so lead with a few related videos of it.
+                if p == 1, let self { cards = self.relatedFirst(cards) }
+                return (cards, ["src": "web", "p": "\(p + 1)"], true)
             }
         case "popular":
             l = PagedList { s in

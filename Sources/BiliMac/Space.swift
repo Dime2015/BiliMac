@@ -340,7 +340,7 @@ private struct TopVideoCard: View {
         Button { AppModel.shared.open(card) } label: {
             HStack(alignment: .top, spacing: 18) {
                 Cover(url: card.cover, width: 720, radius: 8)
-                    .overlay(alignment: .bottomTrailing) { DurationBadge(seconds: card.duration) }
+                    .overlay(alignment: .bottomTrailing) { DurationBadge(seconds: card.duration, radius: 2) }
                     .frame(width: 360)
                     .shadow(color: Theme.shadow.opacity(hover ? 1 : 0), radius: hover ? 16 : 0, y: hover ? 10 : 0)
                 VStack(alignment: .leading, spacing: 10) {
@@ -360,7 +360,7 @@ private struct TopVideoCard: View {
                 Spacer(minLength: 0)
             }
             .padding(10)
-            .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 10))
+            .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressableCard)
@@ -446,7 +446,7 @@ private struct CollectionCard: View {
                 .foregroundStyle(Theme.meta)
         }
         .padding(10)
-        .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 8))
+        .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .contentShape(Rectangle())
         .cardHover($hover)
     }
@@ -870,7 +870,7 @@ private struct DynamicVideo: View {
                 Spacer(minLength: 0)
             }
             .padding(8)
-            .background(Theme.text.opacity(hover ? 0.08 : 0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(Theme.text.opacity(hover ? 0.08 : 0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressableCard)

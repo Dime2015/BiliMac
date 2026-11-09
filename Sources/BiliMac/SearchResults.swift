@@ -574,7 +574,7 @@ private struct LiveTile: View {
                 }
             }
             .padding(8)
-            .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 10))
+            .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressableCard)
@@ -643,7 +643,7 @@ private struct ArticleRow: View {
             }
             .foregroundStyle(Theme.text)
             .padding(10)
-            .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 10))
+            .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
@@ -662,7 +662,7 @@ private struct MediaTile: View {
                     .overlay(alignment: .topTrailing) {
                         if !media.kind.isEmpty {
                             Text(media.kind).font(.system(size: 10.5, weight: .bold)).foregroundStyle(.white)
-                                .padding(.horizontal, 6).padding(.vertical, 2).background(Theme.pink, in: Capsule()).padding(6)
+                                .padding(.horizontal, 6).padding(.vertical, 2).background(Theme.pink, in: RoundedRectangle(cornerRadius: 2)).padding(6)
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

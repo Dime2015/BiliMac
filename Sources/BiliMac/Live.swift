@@ -486,7 +486,8 @@ struct LivePage: View {
     init(roomId: Int) { _live = StateObject(wrappedValue: LiveController(roomId: roomId)) }
 
     var body: some View {
-        HStack(spacing: 8) {
+        // Not an HStack: every chat message measured the player column again (and the chat on every change there).
+        SideBySide(panelWidth: 320) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     player

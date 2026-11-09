@@ -478,7 +478,7 @@ private struct PosterCard: View {
                     if let b = season.badge {
                         Text(b).font(.system(size: 10.5, weight: .bold)).foregroundStyle(.white)
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Theme.pink, in: RoundedRectangle(cornerRadius: 4))
+                            .background(Theme.pink, in: RoundedRectangle(cornerRadius: 2))
                             .padding(6)
                     }
                 }
@@ -486,7 +486,7 @@ private struct PosterCard: View {
                     if let rank {
                         Text("\(rank)").font(.system(size: 15, weight: .black)).foregroundStyle(.white)
                             .frame(minWidth: 28, minHeight: 28)
-                            .background(rank <= 3 ? Theme.pink : .black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+                            .background(rank <= 3 ? Theme.pink : .black.opacity(0.55), in: RoundedRectangle(cornerRadius: 2))
                             .padding(6)
                     }
                 }

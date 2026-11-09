@@ -614,12 +614,17 @@ final class PlayerController: ObservableObject {
     }
 
     /// Short line for the bottom bar badge.
-    var badge: String {
+    var badge: String { badge(rate: stream.map { formatBitrate($0.stats.segmentRate() ?? $0.stats.rate(window: 2)) }) }
+
+    /// `badge` with room for the widest usual bitrate: the space it takes, so the live value never resizes the bar.
+    var badgeTemplate: String { badge(rate: stream == nil ? nil : "00.00 Mbps") }
+
+    private func badge(rate: String?) -> String {
         guard let v = video else { return "" }
         var parts = [shortQuality(v.id), v.codecName]
         if let s = stream {
             parts.append(cdnShortName(s.stats.lastHost ?? s.video.urls.first?.host ?? ""))
-            parts.append(formatBitrate(s.stats.segmentRate() ?? s.stats.rate(window: 2)))
+            if let rate { parts.append(rate) }
         }
         return parts.joined(separator: " · ")
     }

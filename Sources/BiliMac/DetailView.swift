@@ -14,6 +14,7 @@ final class DetailModel: ObservableObject {
     @Published var ownerSpace: SpaceInfo?
     let comments = CommentsModel()
     private var started = false
+    private var closed = false
     private let adopted: Bool
     private var bag: Set<AnyCancellable> = []
 
@@ -37,8 +38,10 @@ final class DetailModel: ObservableObject {
         do {
             let d: VideoDetail
             if let nd = AppModel.shared.nowDetail, nd.bvid == card.bvid { d = nd } else { d = try await BiliAPI.shared.detail(bvid: card.bvid) }
+            if closed { return }
             detail = d
             actions.detail = d
+            AppModel.shared.noteWatched(d)
             Task { self.ownerSpace = try? await BiliAPI.shared.space(mid: d.ownerMid) }
             if card.cover == nil, let t = await TintCache.shared.tint(for: d.cover) { tint = t }
             if adopted, player.phase != .idle {
@@ -56,6 +59,14 @@ final class DetailModel: ObservableObject {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// ✕ on the player: stop it, and keep a load still in flight from starting it in the bottom bar.
+    func close() {
+        closed = true
+        // Still loading: whatever played before this page is still the bottom bar's, and goes too.
+        if AppModel.shared.nowPlaying !== player { player.stop() }
+        AppModel.shared.closeNowPlaying()
     }
 
     func select(_ p: VideoPage) {
@@ -76,7 +87,9 @@ struct VideoScreen: View {
     var body: some View {
         GeometryReader { g in
             let wide = g.size.width > 1100
-            HStack(spacing: 8) {
+            // Not an HStack: it measured the page (player, info, comments) again whenever the side panel changed, and
+            // the side panel whenever the page did.
+            SideBySide(panelWidth: 340, shown: wide ? 1 : 0) {
                 TintedPanel(tint: model.tint, height: 440) {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 18) {
@@ -87,7 +100,6 @@ struct VideoScreen: View {
                                 } else {
                                     PlayerSurface(controller: model.player, chrome: .full, mode: .normal,
                                                   onAppFull: { app.toggleAppFull() }, onScreenFull: { app.toggleScreenFull() },
-                                                  onMiniPlayer: { app.canBack ? app.goBack() : app.go(.home) },
                                                   onDoubleClick: { app.playerDoubleClick() }, topLeading: AnyView(backBar),
                                                   fitVideo: outside)
                                         .matchedPlayer(playerNS)
@@ -132,10 +144,22 @@ struct VideoScreen: View {
         .task { await model.start() }
     }
 
-    /// Back + 分区, at the top-left of the player instead of a row of its own.
+    /// Close + back + minimise + 分区, at the top-left of the player instead of a row of its own.
+    /// ✕ and minimise leave every video page for the page they were opened from; back (only when the page
+    /// before is a video) closes this one and returns to that video.
     private var backBar: some View {
         HStack(spacing: 6) {
-            ChromeIcon(icon: "chevron.left", help: L("返回")) { app.canBack ? app.goBack() : app.go(.home) }
+            ChromeIcon(icon: "xmark", help: L("关闭播放器")) {
+                app.leaveVideos()
+                model.close()
+            }
+            if app.backIsVideo {
+                ChromeIcon(icon: "chevron.left", help: L("回到上一个视频")) {
+                    app.goBack()
+                    model.close()
+                }
+            }
+            ChromeIcon(icon: "chevron.down", help: L("缩到底栏继续播放")) { app.leaveVideos() }
             if let p = model.detail?.partition, !p.isEmpty {
                 Text(p).font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
             }
@@ -391,7 +415,7 @@ private struct RelatedRow: View {
             Spacer(minLength: 0)
         }
         .padding(6)
-        .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
     }

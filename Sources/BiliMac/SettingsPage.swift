@@ -46,6 +46,13 @@ struct SettingsPage: View {
                 .padding(.horizontal, 12)
                 .frame(width: 260)
                 .frame(maxHeight: .infinity, alignment: .top)
+                .onAppear {
+                    // Opened from a toast (e.g. the phone-feed fallback): go straight to that section.
+                    guard let f = app.settingsFocus, let s = SettingsSection(rawValue: f) else { return }
+                    app.settingsFocus = nil
+                    selected = s
+                    DispatchQueue.main.async { proxy.scrollTo(s, anchor: .top) }
+                }
                 .background(Theme.panel, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 ScrollView {
@@ -321,6 +328,9 @@ private struct DanmakuSection: View {
 
 private struct AccountSection: View {
     @EnvironmentObject var app: AppModel
+    @ObservedObject private var s = AppSettings.shared
+    @ObservedObject private var feed = AppFeedAuth.shared
+    @State private var authorizing = false
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionTitle(text: L("账号"))
@@ -347,8 +357,35 @@ private struct AccountSection: View {
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.raised).frame(height: 1) }
             Text(L("登录信息保存在 ~/Library/Application Support/BiliMac/cookies.json（仅本人可读），退出登录会删除其中的 SESSDATA。"))
                 .font(.system(size: 12)).foregroundStyle(Theme.text3).padding(.top, 10)
+            ToggleRow(title: L("首页使用手机端推荐"),
+                      subtitle: L("网页版的推荐偏向长期兴趣，刚看过的内容很少马上出现；手机端的推荐会跟着你最近的观看实时变化。需要用手机扫码授权一次；接口出错时自动改用网页推荐。这是非官方用法，有被风控的可能。"),
+                      isOn: $s.appFeed) {
+                HStack(spacing: 10) {
+                    Text(feedStatus).font(.system(size: 12)).foregroundStyle(feed.lastError == nil ? Theme.text2 : Theme.pink)
+                    Spacer()
+                    if feed.authorized {
+                        PillButton(title: L("取消授权")) { feed.clear(); reloadHome() }
+                    }
+                    PillButton(title: feed.authorized ? L("重新授权") : L("扫码授权"), filled: !feed.authorized) { authorizing = true }
+                }
+                .padding(.top, 8)
+            }
+        }
+        .sheet(isPresented: $authorizing) {
+            LoginView(kind: .appFeed) { ok in
+                authorizing = false
+                if ok { reloadHome() }
+            }
         }
     }
+
+    private var feedStatus: String {
+        if !feed.authorized { return L("未授权，首页使用网页推荐") }
+        if let e = feed.lastError { return Lf("上次请求失败，已改用网页推荐：%@", e) }
+        return s.appFeed ? L("已授权，首页使用手机端推荐") : L("已授权（当前关闭）")
+    }
+
+    private func reloadHome() { Task { await app.list(for: "home").reload() } }
 }
 
 private struct KeysSection: View {

@@ -165,6 +165,8 @@ final class AppSettings: ObservableObject {
     @Published var codec: CodecPref { didSet { d.set(codec.rawValue, forKey: "codec") } }
     @Published var resumePlayback: Bool { didSet { d.set(resumePlayback, forKey: "resumePlayback") } }
     @Published var reportHistory: Bool { didSet { d.set(reportHistory, forKey: "reportHistory") } }
+    /// 首页「推荐」from the phone app's feed, once authorized (see AppFeedAuth); falls back to the web feed.
+    @Published var appFeed: Bool { didSet { d.set(appFeed, forKey: "appFeed") } }
     @Published var featuredAutoNext: Bool { didSet { d.set(featuredAutoNext, forKey: "featuredAutoNext") } }
     @Published var detailAutoNext: Bool { didSet { d.set(detailAutoNext, forKey: "detailAutoNext") } }
     @Published var volume: Float { didSet { d.set(volume, forKey: "volume") } }
@@ -235,6 +237,7 @@ final class AppSettings: ObservableObject {
         codec = CodecPref(rawValue: d.string(forKey: "codec") ?? "") ?? .auto
         resumePlayback = b("resumePlayback", true)
         reportHistory = b("reportHistory", true)
+        appFeed = b("appFeed", true)
         featuredAutoNext = b("featuredAutoNext", true)
         detailAutoNext = b("detailAutoNext", false)
         volume = Float(n("volume", 1))

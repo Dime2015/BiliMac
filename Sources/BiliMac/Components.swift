@@ -230,13 +230,15 @@ struct Cover: View {
 
 struct DurationBadge: View {
     let seconds: Int?
+    /// Sits 6pt in from the cover's corner; on a cover rounder than 10pt, pass cover radius − 6.
+    var radius: CGFloat = 4
     var body: some View {
         if let s = seconds, s > 0 {
             Text(formatDuration(s))
                 .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: 4))
+                .background(.black.opacity(0.62), in: RoundedRectangle(cornerRadius: radius))
                 .padding(6)
         }
     }
@@ -331,7 +333,8 @@ struct ShelfCard: View {
             .lineLimit(1)
         }
         .padding(10)
-        .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 8))
+        // Concentric with the cover inside: its r6 plus the 10pt padding.
+        .background(hover ? Theme.elevated : .clear, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .contentShape(Rectangle())
         .cardHover($hover)
     }
@@ -427,7 +430,8 @@ struct LibraryRow: View {
             Spacer(minLength: 0)
         }
         .padding(6)
-        .background(selected ? Theme.raised : (hover ? Theme.rowHover : .clear), in: RoundedRectangle(cornerRadius: 6))
+        // The sidebar panel is r10 and the rows sit 6pt inside it: 10 − 6.
+        .background(selected ? Theme.raised : (hover ? Theme.rowHover : .clear), in: RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
     }

@@ -56,12 +56,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         do { try HLSProxy.shared.start() } catch { log("proxy start failed: \(error)") }
         NSApp.setActivationPolicy(.regular)
         MainActor.assumeIsolated { AppSettings.shared.appearance.apply() }
-        NSApp.activate(ignoringOtherApps: true)
+        if !Env.benchQuiet { NSApp.activate(ignoringOtherApps: true) }
         MainActor.assumeIsolated { InputRouter.shared.install() }
         MainActor.assumeIsolated { HangRecorder.start() }
         if let size = Env.windowSize {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                if let w = NSApp.windows.first(where: { $0.canBecomeMain }) { w.setContentSize(size); w.center() }
+                if let w = NSApp.windows.first(where: { $0.canBecomeMain }) {
+                    w.setContentSize(size)
+                    // Quiet benchmarks sit in the bottom-right corner instead of the middle of the screen.
+                    if Env.benchQuiet, let v = w.screen?.visibleFrame { w.setFrameOrigin(NSPoint(x: v.maxX - w.frame.width, y: v.minY)) } else { w.center() }
+                }
             }
         }
     }

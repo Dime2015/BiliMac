@@ -118,7 +118,6 @@ struct PlayerSurface<Overlay: View>: View {
     var mode: PlayerMode = .normal
     var onAppFull: (() -> Void)? = nil
     var onScreenFull: (() -> Void)? = nil
-    var onMiniPlayer: (() -> Void)? = nil
     var onDoubleClick: (() -> Void)? = nil
     /// Room kept clear at the top (精选's title row, traffic lights) and right (精选's up-next column).
     var topInset: CGFloat = 0
@@ -199,11 +198,14 @@ struct PlayerSurface<Overlay: View>: View {
                 PhaseOverlay(controller: controller)
                 FlashView(controller: controller)
                 if settings.showStats {
-                    StatsPanel(controller: controller)
-                        .padding(12)
-                        // Clear the expanded title card (精选) when it is showing over the picture.
-                        .padding(.top, cardOpen ? headerCardHeight + 14 : 0)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    // Updates every second: in an overlay, like `InfoStrip`.
+                    Color.clear
+                        .overlay(alignment: .topLeading) {
+                            StatsPanel(controller: controller)
+                                .padding(12)
+                                // Clear the expanded title card (精选) when it is showing over the picture.
+                                .padding(.top, cardOpen ? headerCardHeight + 14 : 0)
+                        }
                         .transition(.opacity)
                 }
                 overlay(true)
@@ -225,7 +227,7 @@ struct PlayerSurface<Overlay: View>: View {
                 controller.togglePlay()
             }))
             ControlsBar(controller: controller, mode: mode, onAppFull: onAppFull, onScreenFull: onScreenFull,
-                        onMiniPlayer: onMiniPlayer, accessory: barAccessory, solid: true)
+                        accessory: barAccessory, solid: true)
         }
         .background(Color.black)
         // Legibility scrim, then the card on top of it.
@@ -301,20 +303,27 @@ struct PlayerSurface<Overlay: View>: View {
 
             if chrome == .full {
                 if settings.showStats {
-                    StatsPanel(controller: controller)
-                        .padding(.leading, 16)
-                        .padding(.top, topInset + 52)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    // Updates every second: in an overlay, like `InfoStrip`.
+                    Color.clear
+                        .overlay(alignment: .topLeading) {
+                            StatsPanel(controller: controller)
+                                .padding(.leading, 16)
+                                .padding(.top, topInset + 52)
+                        }
                         .transition(.opacity)
                 }
-                InfoStrip(controller: controller)
-                    .padding(.top, topInset + 14)
-                    .padding(.trailing, 16)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                // The strip changes every second: in an overlay its ticks can't re-lay out the player, or anything
+                // laid out beside it (精选's comments, the video page) — see `InfoStrip`.
+                Color.clear
+                    .overlay(alignment: .topTrailing) {
+                        InfoStrip(controller: controller)
+                            .padding(.top, topInset + 14)
+                            .padding(.trailing, 16)
+                    }
                     .opacity(stripShown ? 1 : 0)
                     .allowsHitTesting(false)
                 ControlsBar(controller: controller, mode: mode, onAppFull: onAppFull, onScreenFull: onScreenFull,
-                            onMiniPlayer: onMiniPlayer, accessory: barAccessory, solid: false)
+                            accessory: barAccessory, solid: false)
                     .onHover { ui.hoveringControls = $0 }
                     .padding(.trailing, trailingInset)
                     .frame(maxHeight: .infinity, alignment: .bottom)
@@ -353,11 +362,11 @@ struct PlayerSurface<Overlay: View>: View {
 
 extension PlayerSurface where Overlay == EmptyView {
     init(controller: PlayerController, chrome: Chrome = .full, mode: PlayerMode = .normal,
-         onAppFull: (() -> Void)? = nil, onScreenFull: (() -> Void)? = nil, onMiniPlayer: (() -> Void)? = nil,
+         onAppFull: (() -> Void)? = nil, onScreenFull: (() -> Void)? = nil,
          onDoubleClick: (() -> Void)? = nil, topInset: CGFloat = 0, trailingInset: CGFloat = 0,
          header: PlayerHeader? = nil, topLeading: AnyView? = nil, headerLeadingInset: CGFloat = 0, fitVideo: Bool = false) {
         self.init(controller: controller, chrome: chrome, mode: mode, onAppFull: onAppFull, onScreenFull: onScreenFull,
-                  onMiniPlayer: onMiniPlayer, onDoubleClick: onDoubleClick, topInset: topInset, trailingInset: trailingInset,
+                  onDoubleClick: onDoubleClick, topInset: topInset, trailingInset: trailingInset,
                   header: header, topLeading: topLeading, headerLeadingInset: headerLeadingInset, fitVideo: fitVideo) { _ in EmptyView() }
     }
 }
@@ -436,12 +445,21 @@ struct PlayerTopBar: View {
     let leadingInset: CGFloat
     let showStrip: Bool
     var ns: Namespace.ID? = nil
+    /// Widths of the strip's forms, as it reports them.
+    @State private var stripWidths: [CGFloat] = []
     var body: some View {
         HStack(spacing: 16) {
             if let leading { leading }
-            if let header { PlayerHeaderView(header: header, ns: ns).layoutPriority(0) }
+            if let header { PlayerHeaderView(header: header, ns: ns) }
             Spacer(minLength: 12)
-            if showStrip { InfoStrip(controller: controller, plain: true).layoutPriority(1) }
+            // The strip changes every second, so it's drawn over an empty room (a tick can't re-lay out the bar).
+            // The room is the fullest form that fits, as a ViewThatFits would pick, and is offered space before the
+            // title, so the title truncates rather than run under the strip.
+            FirstFit(widths: showStrip ? stripWidths : [], height: 26) { Color.clear }
+                .layoutPriority(1)
+                .overlay(alignment: .trailing) {
+                    if showStrip { InfoStrip(controller: controller, plain: true) { stripWidths = $0 } }
+                }
         }
         .padding(.leading, (leading == nil ? 14 : 6) + leadingInset)
         .padding(.trailing, 14)
@@ -513,19 +531,17 @@ struct ControlsBar: View {
     let mode: PlayerMode
     let onAppFull: (() -> Void)?
     let onScreenFull: (() -> Void)?
-    let onMiniPlayer: (() -> Void)?
     let accessory: AnyView?
     /// Solid bar under the picture (outside layout) rather than floating over it.
     let solid: Bool
 
-    init(controller: PlayerController, mode: PlayerMode, onAppFull: (() -> Void)?, onScreenFull: (() -> Void)?, onMiniPlayer: (() -> Void)?,
+    init(controller: PlayerController, mode: PlayerMode, onAppFull: (() -> Void)?, onScreenFull: (() -> Void)?,
          accessory: AnyView? = nil, solid: Bool = false) {
         self.controller = controller
         clock = controller.clock
         self.mode = mode
         self.onAppFull = onAppFull
         self.onScreenFull = onScreenFull
-        self.onMiniPlayer = onMiniPlayer
         self.accessory = accessory
         self.solid = solid
     }
@@ -540,21 +556,18 @@ struct ControlsBar: View {
                     controller.togglePlay()
                 }
                 .contentTransition(.symbolEffect(.replace))
-                Text("\(formatTime(clock.time)) / \(formatTime(clock.duration))")
+                // The time ticks every second; drawn in an overlay over a placeholder as wide as the duration, so the
+                // tick doesn't re-lay out the bar (whose ViewThatFits rebuilds every control row) and stall the danmaku.
+                let total = formatTime(clock.duration)
+                Text("\(total) / \(total)").hidden()
+                    .overlay(alignment: .leading) { Text("\(formatTime(clock.time)) / \(total)").foregroundStyle(.white) }
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white)
                     .padding(.leading, 4)
                 if let accessory { accessory.padding(.leading, 12) }
-                Spacer()
-                        // Narrow players: the volume slider shrinks, then it and 统计信息 go, then the enhancement pill and
-                // the audio mark's label, then 弹幕设置 and 小窗 — so the fullscreen buttons are never cut off.
-                ViewThatFits(in: .horizontal) {
-                    rightControls(level: 0)
-                    rightControls(level: 1)
-                    rightControls(level: 2)
-                    rightControls(level: 3)
-                    rightControls(level: 4)
-                }
+                // Narrow players: the volume slider shrinks, then it and 统计信息 go, then the enhancement pill and
+                // the audio mark's label, then 弹幕设置 — so the fullscreen buttons are never cut off.
+                AdaptiveRow(levels: 5, height: 32) { rightControls(level: $0) }
+                    .padding(.leading, 8)
             }
         }
         .foregroundStyle(.white)
@@ -581,9 +594,6 @@ struct ControlsBar: View {
                 ChromeIcon(icon: "chart.xyaxis.line", help: L("统计信息 I"), active: settings.showStats) { settings.showStats.toggle() }
             }
             VolumeBar(player: controller, sliderWidth: level == 0 ? 90 : level == 1 ? 50 : 0).padding(.horizontal, 4)
-            if let onMiniPlayer, mode == .normal, level < 4 {
-                ChromeIcon(icon: "pip.enter", help: L("小窗：返回浏览，在底部继续播放"), action: onMiniPlayer)
-            }
             if let onAppFull {
                 ChromeIcon(icon: mode == .appFull ? "rectangle.arrowtriangle.2.inward" : "rectangle.arrowtriangle.2.outward",
                            help: mode == .appFull ? L("退出应用内全屏 T") : L("应用内全屏 T"), active: mode == .appFull, action: onAppFull)
@@ -694,9 +704,16 @@ struct SpeedPicker: View {
 }
 
 /// One compact line above the video: quality, picture, codecs, and live download speed per CDN host.
+/// Its text changes every second, and a layout change inside a stack re-runs every stack above it up to the
+/// window, each asking all its children for their sizes again (精选's comment rows: 40–80 ms a tick). So it is
+/// only ever placed in an `.overlay`, whose content can't change the size of what it's laid over.
 struct InfoStrip: View {
     @ObservedObject var controller: PlayerController
     var plain = false
+    /// Widths of the three forms, fullest first (rounded up to 24 pt), for a bar that keeps room for the strip.
+    var onWidths: (([CGFloat]) -> Void)? = nil
+    @State private var widths: [CGFloat] = [0, 0, 0]
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             if !controller.infoChips().isEmpty {
@@ -706,6 +723,7 @@ struct InfoStrip: View {
                     row(controller.infoChips(compact: 1))
                     row(controller.infoChips(compact: 2))
                 }
+                .background { if onWidths != nil { probe } }
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .lineLimit(1)
                 .padding(.horizontal, plain ? 0 : 12).frame(height: 26)
@@ -713,6 +731,21 @@ struct InfoStrip: View {
                 .overlay(Capsule().strokeBorder(.white.opacity(plain ? 0 : 0.08)))
             }
         }
+    }
+
+    /// Every form laid out unseen, to report its width (in a background: it can't change any layout).
+    private var probe: some View {
+        ZStack {
+            ForEach(0..<3, id: \.self) { i in
+                row(controller.infoChips(compact: i))
+                    .onGeometryChange(for: CGFloat.self) { ($0.size.width / 24).rounded(.up) * 24 } action: { w in
+                        guard widths[i] != w else { return }
+                        widths[i] = w
+                        onWidths?(widths)
+                    }
+            }
+        }
+        .hidden()
     }
 
     private func row(_ chips: [InfoChip]) -> some View {
@@ -1127,5 +1160,21 @@ struct PlayerHeaderCard: View {
     private var counts: String? {
         let parts = [header.fans.map { Lf("%@ 粉丝", formatCount($0)) }, header.likes.map { Lf("%@ 点赞", formatCount($0)) }].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// Takes the first of `widths` that fits the width offered (the last if none does), at `height`; its content is
+/// placed at that size. Keeps room for something drawn over it, the way a ViewThatFits of that thing would size.
+private struct FirstFit: Layout {
+    let widths: [CGFloat]
+    let height: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let room = proposal.width ?? .infinity
+        return CGSize(width: widths.first { $0 <= room } ?? widths.last ?? 0, height: height)
+    }
+
+    func placeSubviews(in b: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for s in subviews { s.place(at: b.origin, anchor: .topLeading, proposal: ProposedViewSize(b.size)) }
     }
 }

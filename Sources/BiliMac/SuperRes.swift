@@ -121,7 +121,17 @@ final class SuperResLayerView: NSView {
 
     // MARK: Per frame
 
+    /// Benchmark counters (=full): main-thread time per tick, and frames drawn.
+    static var benchTicks = 0, benchFrames = 0, benchSlowTicks = 0
+    static var benchTickMax = 0.0, benchTickTotal = 0.0
+
     @objc private func tick(_ link: CADisplayLink) {
+        let t0 = CACurrentMediaTime()
+        defer {
+            let d = CACurrentMediaTime() - t0
+            Self.benchTicks += 1; Self.benchTickTotal += d; Self.benchTickMax = max(Self.benchTickMax, d)
+            if d > 0.004 { Self.benchSlowTicks += 1 }
+        }
         guard let output, metalLayer.drawableSize.width > 0 else { return }
         let t = output.itemTime(forHostTime: link.targetTimestamp)
         if output.hasNewPixelBuffer(forItemTime: t), let pb = output.copyPixelBuffer(forItemTime: t, itemTimeForDisplay: nil) {
@@ -211,6 +221,7 @@ final class SuperResLayerView: NSView {
         }
         cb.commit()
         drawing = true
+        Self.benchFrames += 1
     }
 
     // MARK: Helpers

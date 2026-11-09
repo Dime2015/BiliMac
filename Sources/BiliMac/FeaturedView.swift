@@ -33,9 +33,10 @@ struct FeaturedView: View {
             let outside = settings.chromeLayout == .outside
             let showNext = false
             let lights = (fullBleed ? app.playerMode == .appFull : settings.railAutoHide) ? 64.0 : 0.0
-            HStack(spacing: 0) {
-                ZStack {
-                    Color(hex: 0x0B0B0B)
+            let panelWidth = min(420, max(320, g.size.width * 0.32))
+            let panelOn = showComments && !placeholder
+            SideBySide(panelWidth: panelWidth, spacing: 0, shown: panelOn ? 1 : 0) {
+                FillStack {
                     if placeholder {
                         Color.black
                     } else if let c = feed.current {
@@ -66,12 +67,12 @@ struct FeaturedView: View {
                     } else {
                         ProgressView().controlSize(.large).tint(.white)
                     }
-
                 }
-                if showComments && !placeholder {
+                .background(Color(hex: 0x0B0B0B))
+                if panelOn {
                     commentsPanel
-                        .frame(width: min(420, max(320, g.size.width * 0.32)))
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .frame(width: panelWidth)
+                        .transition(.opacity)
                 }
             }
             .animation(Motion.page, value: showComments)
@@ -88,6 +89,7 @@ struct FeaturedView: View {
             comments.reset(aid: d.aid, upMid: d.ownerMid, total: d.stat.reply)
             if comments.comments.isEmpty && !comments.end { await comments.reload() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .init("BiliMacBenchComments"))) { _ in showComments = true }
         .task(id: actions.detail?.ownerMid) {
             guard let mid = actions.detail?.ownerMid, mid > 0, ownerLikes?.mid != mid,
                   let info = try? await BiliAPI.shared.space(mid: mid) else { return }
@@ -212,13 +214,22 @@ struct FeaturedView: View {
         }
     }
 
+    /// The header and composer stay put; only the comments scroll under them.
     private var commentsPanel: some View {
-        ScrollView {
-            CommentsSection(model: comments) { showComments = false }
+        VStack(spacing: 0) {
+            CommentsHeader(model: comments) { showComments = false }
                 .padding(.horizontal, 18)
-                .padding(.vertical, 14)
+                .padding(.top, 22)
+                .padding(.bottom, 14)
+                .overlay(alignment: .bottom) { Rectangle().fill(.white.opacity(0.08)).frame(height: 1) }
+            ScrollView {
+                CommentsList(model: comments)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 4)
+                    .padding(.bottom, 14)
+            }
+            .scrollIndicators(.automatic)
         }
-        .scrollIndicators(.automatic)
         .background(Color(hex: 0x141414))
         .overlay(alignment: .leading) { Rectangle().fill(.white.opacity(0.08)).frame(width: 1) }
         .foregroundStyle(.white)

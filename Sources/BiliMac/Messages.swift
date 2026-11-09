@@ -902,7 +902,8 @@ private struct MessageBubble: View {
                     if let cover {
                         RemoteImage(url: URL(string: cover.absoluteString + "@240w_150h_1c.webp"))
                             .frame(width: 96, height: 60)
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            // Concentric with the r12 bubble, 10pt in.
+                            .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
                     }
                     Text(title).font(.system(size: 13, weight: .semibold)).lineLimit(3).multilineTextAlignment(.leading)
                     Spacer(minLength: 0)
@@ -1064,7 +1065,7 @@ private struct FeedRow: View {
             }
             .foregroundStyle(Theme.text)
             .padding(12)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(hover ? Theme.rowHover : .clear))
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(hover ? Theme.rowHover : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)

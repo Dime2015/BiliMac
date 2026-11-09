@@ -155,6 +155,8 @@ struct Comment: Identifiable {
     let isUp: Bool
     /// I liked it.
     var liked = false
+    /// Where bilibili places the commenter's IP ("广东", "美国"), when it says.
+    var location: String? = nil
 
     static func parse(_ r: JSON, upMid: Int?) -> Comment? {
         guard let id = r.int("rpid") else { return nil }
@@ -169,8 +171,17 @@ struct Comment: Identifiable {
             message: r.obj("content")?.str("message") ?? "", like: r.int("like") ?? 0,
             ctime: Date(timeIntervalSince1970: TimeInterval(r.int("ctime") ?? 0)),
             rcount: r.int("rcount") ?? 0, previews: Array(previews),
-            isUp: upMid != nil && r.int("mid") == upMid, liked: r.int("action") == 1)
+            isUp: upMid != nil && r.int("mid") == upMid, liked: r.int("action") == 1,
+            location: ipLocation(r.obj("reply_control")?.str("location")))
     }
+}
+
+/// "IP属地：广东" → "广东" (bilibili sends the label with the place).
+func ipLocation(_ s: String?) -> String? {
+    guard var s = s?.trimmingCharacters(in: .whitespaces), !s.isEmpty else { return nil }
+    for prefix in ["IP属地：", "IP属地:", "IP属地"] where s.hasPrefix(prefix) { s = String(s.dropFirst(prefix.count)); break }
+    s = s.trimmingCharacters(in: .whitespaces)
+    return s.isEmpty ? nil : s
 }
 
 struct FavFolder: Identifiable, Hashable {
