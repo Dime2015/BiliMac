@@ -32,6 +32,8 @@ enum Env {
     static let testDownload = e["BILIMAC_TEST_DOWNLOAD"]
     /// Start every player muted (background checks that have to play).
     static let mute = e["BILIMAC_MUTE"] != nil
+    /// Play without an audio track at all (start-up timings that shouldn't depend on the Mac's audio output).
+    static let noAudio = e["BILIMAC_NOAUDIO"] != nil
     /// Window content size, e.g. 1440x900.
     static let windowSize: CGSize? = e["BILIMAC_WINDOW"].flatMap { s in
         let p = s.split(separator: "x").compactMap { Double($0) }

@@ -315,6 +315,7 @@
 "收藏夹是空的" = "This folder is empty";
 "视频信息还没加载完" = "The video is still loading";
 "播放失败" = "Playback failed";
+"视频已缓冲好，但系统的音频输出没有响应，要等它超时（约 15 秒）才能开始。iOS 模拟器等程序占用扬声器时会这样，关掉它们通常就好。" = "The video is buffered, but the Mac's audio output isn't responding, so playback waits for it to time out (about 15 s). This happens when an app such as the iOS Simulator holds the speaker; quitting it usually helps.";
 "标准音质" = "Standard audio";
 "网络跟不上 %@，已切到 %@" = "Network too slow for %1$@ — switched to %2$@";
 "网络恢复，已切回 %@" = "Network recovered — back to %@";

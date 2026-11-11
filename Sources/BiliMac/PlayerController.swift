@@ -56,7 +56,7 @@ final class PlayerController: ObservableObject {
     /// video starts with its own sound and the file is fetched in the background (`loadAudioFXLater`).
     /// Fetching it first held a 4K video back by 10 s or more (one throttled connection for the whole file).
     private func prepareAudioFX(stream s: HLSStream, previous: HLSStream?, at time: Double) async -> FXStart {
-        guard settings.audioLoudness || settings.audioVoice, let track = s.audio else {
+        guard settings.audioLoudness || settings.audioVoice, !Env.noAudio, let track = s.audio else {
             audioFollower.stop()
             return .off
         }
@@ -227,6 +227,7 @@ final class PlayerController: ObservableObject {
     private var tokens: [NSObjectProtocol] = []
     private var timeObserver: Any?
     private var tcsObserver: NSKeyValueObservation?
+    private var reasonObserver: NSKeyValueObservation?
     private var ticker: Timer?
     private var history: [Double] = []
     private var realPlayed: Double = 0
@@ -260,6 +261,13 @@ final class PlayerController: ObservableObject {
         if Env.mute { player.isMuted = true }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4), queue: .main) { [weak self] t in
             MainActor.assumeIsolated { self?.tick(t.seconds) }
+        }
+        reasonObserver = player.observe(\.reasonForWaitingToPlay) { [weak self] p, _ in
+            let r = p.reasonForWaitingToPlay?.rawValue
+            Task { @MainActor in
+                guard let self, let r, self.clock.waiting else { return }
+                log(String(format: "%@ waiting reason: %@ (buffer %.1f s)", self.bvid, r, max(0, self.clock.buffered - self.clock.time)))
+            }
         }
         tcsObserver = player.observe(\.timeControlStatus) { [weak self] p, _ in
             let st = p.timeControlStatus
@@ -387,6 +395,7 @@ final class PlayerController: ObservableObject {
             return fresh
         }
         if let how = Env.testExpired { s.spoilURLsForTesting(how); log("test: \(how) spoiled, expires \(s.expiry.map { "\($0)" } ?? "?")") }
+        if Env.noAudio { s.videoOnly = true }
         let url = HLSProxy.shared.register(s)
         let old = stream
         stream = s
@@ -433,6 +442,7 @@ final class PlayerController: ObservableObject {
         }]
         attachedAt = Date()
         player.replaceCurrentItem(with: item)
+        watchStart(item)
         if time > 0 { await player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
         switch fx {
         case .ready: audioFollower.follow(player)
@@ -474,6 +484,33 @@ final class PlayerController: ObservableObject {
     }
 
     private var everReady = false
+    private var startWatch: Task<Void, Never>?
+    private static var warnedAudioDevice = false
+
+    /// The player can hold a video back with its data in: it starts the Mac's audio output first, and when that
+    /// doesn't answer (seen while the iOS Simulator held the speaker) it waits out a 15 s CoreAudio timeout before
+    /// showing anything. The app can't fix the audio device; this says what's going on instead of a long spinner.
+    private func watchStart(_ item: AVPlayerItem) {
+        startWatch?.cancel()
+        startWatch = Task { [weak self] in
+            var bufferedSince: Date?
+            let started = Date()
+            while !Task.isCancelled, Date().timeIntervalSince(started) < 30 {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard let self, self.player.currentItem === item, item.status != .readyToPlay, item.status != .failed else { return }
+                let buffered = item.loadedTimeRanges.map { $0.timeRangeValue.duration.seconds }.max() ?? 0
+                if buffered >= 4 { bufferedSince = bufferedSince ?? Date() }
+                guard let since = bufferedSince, Date().timeIntervalSince(since) > 3 else { continue }
+                log(String(format: "%@ start held back: %.0f s buffered, not ready after %.1f s (audio output not starting?)",
+                           self.bvid, buffered, Date().timeIntervalSince(self.loadStarted)))
+                if !Self.warnedAudioDevice, AppModel.shared.nowPlaying === self {
+                    Self.warnedAudioDevice = true
+                    AppModel.shared.notify(L("视频已缓冲好，但系统的音频输出没有响应，要等它超时（约 15 秒）才能开始。iOS 模拟器等程序占用扬声器时会这样，关掉它们通常就好。"))
+                }
+                return
+            }
+        }
+    }
     private var startLogged = false
 
     /// Start-up timeline in the log: how long from opening the video to each step.
@@ -706,6 +743,7 @@ final class PlayerController: ObservableObject {
 
     private func teardownItem() {
         fxTask?.cancel()
+        startWatch?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
         audioFollower.stop()

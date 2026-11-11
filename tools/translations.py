@@ -669,6 +669,7 @@ T = {
 "构建于 %@ · %@": ("Built %@ · %@", "ビルド：%1$@ · %2$@"),
 "构建于 %@ · %@（含未提交的修改）": ("Built %@ · %@ (with uncommitted changes)", "ビルド：%1$@ · %2$@（未コミットの変更を含む）"),
 "自动（用接口默认节点快速开播，再换到下载最快的线路）": ("Auto (starts on the default node, then switches to the fastest line)", "自動（標準ノードですぐに再生し、その後いちばん速い回線に切り替え）"),
+"视频已缓冲好，但系统的音频输出没有响应，要等它超时（约 15 秒）才能开始。iOS 模拟器等程序占用扬声器时会这样，关掉它们通常就好。": ("The video is buffered, but the Mac's audio output isn't responding, so playback waits for it to time out (about 15 s). This happens when an app such as the iOS Simulator holds the speaker; quitting it usually helps.", "動画のバッファは揃っていますが、Mac の音声出力が応答しないため、タイムアウト（約 15 秒）まで再生が始まりません。iOS シミュレータなどがスピーカーを使っているときに起きます。それらを終了すると直ることが多いです。"),
 }
 
 def esc(s): return s.replace('\\', '\\\\').replace('"', '\\"')
