@@ -48,46 +48,118 @@ final class PlayerController: ObservableObject {
     /// 音效处理: plays the audio in `audioFollower` (with the tap) instead of inside the HLS item.
     let audioFollower = AudioFollower()
 
-    /// When 响度均衡 or 人声增强 is on, downloads the audio into the proxy, drops it from the HLS
-    /// playlist and gets the follower ready. Returns false (normal playback) if anything fails.
-    private func prepareAudioFX(stream s: HLSStream, previous: HLSStream?, masterURL: URL, at time: Double) async -> Bool {
+    /// How 音效处理 starts for a new stream.
+    private enum FXStart { case off, ready, later(HLSStream.Track) }
+
+    /// When 响度均衡 or 人声增强 is on, the audio plays in `audioFollower`, which needs the whole audio file.
+    /// If the previous stream already had it (a quality change), the follower is set up now; otherwise the
+    /// video starts with its own sound and the file is fetched in the background (`loadAudioFXLater`).
+    /// Fetching it first held a 4K video back by 10 s or more (one throttled connection for the whole file).
+    private func prepareAudioFX(stream s: HLSStream, previous: HLSStream?, at time: Double) async -> FXStart {
         guard settings.audioLoudness || settings.audioVoice, let track = s.audio else {
             audioFollower.stop()
-            return false
+            return .off
         }
         // Hi-Res 无损 / 杜比全景声 play untouched: too big to fetch whole quickly, and the point is the original sound.
         guard audioKind == .standard else {
             log("audio fx: skipped for \(track.dash.codecName) track")
             audioFollower.stop()
-            return false
+            return .off
         }
         // Keep memory sane: skip files over ~120 MB (very long videos).
         let duration = info?.duration ?? 0
         guard Double(track.dash.bandwidth) / 8 * max(duration, 60) < 120_000_000 else {
             log("audio fx: audio too large, playing normally")
             audioFollower.stop()
-            return false
+            return .off
+        }
+        guard let prev = previous, prev.audio?.dash == track.dash, let data = prev.audioData else {
+            audioFollower.stop()
+            return .later(track)
         }
         do {
-            if let prev = previous, prev.audio?.dash == track.dash, let data = prev.audioData {
-                s.audioData = data
-            } else {
-                s.audioData = try await withTimeout(seconds: 10) { try await HLSProxy.shared.fetchWhole(track, stats: s.stats) }
-            }
+            s.audioData = data
             s.videoOnly = true
-            audioFX.loudnessOn = settings.audioLoudness
-            audioFX.voiceOn = settings.audioVoice
-            audioFX.staticGainDB = info?.loudnessGainDB.map(Float.init)
-            guard let data = s.audioData else { throw APIError(description: "no audio data") }
+            configureFX()
             try await audioFollower.prepare(data: data, fx: audioFX, at: time)
-            return true
+            return .ready
         } catch {
             log("audio fx unavailable, playing normally: \(error)")
             s.videoOnly = false
             s.audioData = nil
             audioFollower.stop()
-            return false
+            return .off
         }
+    }
+
+    private func configureFX() {
+        audioFX.loudnessOn = settings.audioLoudness
+        audioFX.voiceOn = settings.audioVoice
+        audioFX.staticGainDB = info?.loudnessGainDB.map(Float.init)
+    }
+
+    private var fxTask: Task<Void, Never>?
+
+    /// Fetches the audio once the video is playing, then hands the sound over to the follower: it starts in step
+    /// with the video, and the stream's own audio is switched off.
+    private func loadAudioFXLater(stream s: HLSStream, track: HLSStream.Track) {
+        fxTask?.cancel()
+        let (b, c) = (bvid, cid)
+        let node = settings.cdnNode
+        fxTask = Task { [weak self] in
+            // Let the picture start first: the audio file would compete with the first video segments.
+            while !Task.isCancelled {
+                guard let self, self.stream === s else { return }
+                if self.everReady { break }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            let started = Date()
+            do {
+                let data = try await Self.fetchWholeTrack(track.dash, node: node, bvid: b, cid: c)
+                guard let self, !Task.isCancelled, self.stream === s, let item = self.player.currentItem else { return }
+                guard let group = try await item.asset.loadMediaSelectionGroup(for: .audible), group.allowsEmptySelection else {
+                    throw APIError(description: "the stream's audio can't be switched off")
+                }
+                s.audioData = data
+                self.configureFX()
+                try await self.audioFollower.prepare(data: data, fx: self.audioFX, at: self.player.currentTime().seconds)
+                guard !Task.isCancelled, self.stream === s, self.player.currentItem === item else { self.audioFollower.stop(); return }
+                self.audioFollower.follow(self.player)
+                // Switch the stream's sound off once the follower is actually playing (it starts a moment ahead,
+                // in step), so the change-over has neither a gap nor a double.
+                if self.player.rate != 0 {
+                    for _ in 0..<15 where self.audioFollower.player.rate == 0 { try? await Task.sleep(for: .milliseconds(100)) }
+                }
+                guard !Task.isCancelled, self.stream === s, self.player.currentItem === item else { self.audioFollower.stop(); return }
+                item.select(nil, in: group)
+                s.videoOnly = true
+                self.objectWillChange.send()   // the 音效 badges
+                log(String(format: "%@ audio fx: on after %.1f s in the background (%@)", b, Date().timeIntervalSince(started),
+                           formatBytes(data.count)))
+            } catch {
+                guard !Task.isCancelled else { return }
+                log("audio fx unavailable, playing normally: \(error)")
+                self?.audioFollower.stop()
+            }
+        }
+    }
+
+    /// The whole file of a track, in parallel ranges (one connection is throttled by the CDN).
+    nonisolated static func fetchWholeTrack(_ t: DashTrack, node: CDNNode, bvid: String, cid: Int) async throws -> Data {
+        var track = t
+        var size = await TrackSizes.shared.size(of: track)
+        if size == nil {
+            track = try DownloadTask.same(t, in: try await BiliAPI.shared.playInfo(bvid: bvid, cid: cid))
+            size = await TrackSizes.shared.size(of: track)
+        }
+        guard let size else { throw APIError(description: "no size for the audio track") }
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("bilimac-fx-\(UUID().uuidString).mp4")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let fetcher = TrackFetcher(track: track, node: node) {
+            try DownloadTask.same(track, in: try await BiliAPI.shared.playInfo(bvid: bvid, cid: cid))
+        }
+        try await fetcher.fetch(total: size, to: file) { _ in }
+        return try Data(contentsOf: file)
     }
 
     /// Settings changed: update the effect live, or re-attach when the path has to change.
@@ -185,6 +257,7 @@ final class PlayerController: ObservableObject {
             .sink { [weak self] _ in if self?.isHDR == true { self?.reloadStream() } }
             .store(in: &bag)
         player.volume = settings.volume
+        if Env.mute { player.isMuted = true }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4), queue: .main) { [weak self] t in
             MainActor.assumeIsolated { self?.tick(t.seconds) }
         }
@@ -193,6 +266,7 @@ final class PlayerController: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.clock.playing = st == .playing
+                if st == .playing, !self.startLogged { self.startLogged = true; self.mark("playing") }
                 let waiting = st == .waitingToPlayAtSpecifiedRate
                 if waiting != self.clock.waiting { self.clock.waiting = waiting; self.waitingChanged(waiting) }
                 if st == .paused { self.beat(force: true) }
@@ -249,6 +323,9 @@ final class PlayerController: ObservableObject {
         sentFirstBeat = false
         startupTime = nil
         manualQuality = false
+        everReady = false
+        startLogged = false
+        lastRecovery = .distantPast
         stallTimes = []
         lastStall = .distantPast
         lastUpgrade = .distantPast
@@ -267,6 +344,7 @@ final class PlayerController: ObservableObject {
             do {
                 let info = try await BiliAPI.shared.playInfo(bvid: bvid, cid: cid)
                 guard !Task.isCancelled else { return }
+                self.mark("play url")
                 self.info = info
                 let v = info.pickVideo(order: self.settings.qualityOrder, codec: self.settings.codec)
                 var start: Double = startAt ?? 0
@@ -300,12 +378,22 @@ final class PlayerController: ObservableObject {
         let sid = "\(bvid)-\(cid)-\(v.id)-\(Int(Date().timeIntervalSince1970 * 1000) % 10_000_000)"
         let s = try await HLSProxy.shared.prepare(id: sid, video: v, audio: a, node: settings.cdnNode)
         guard !Task.isCancelled else { return }
+        mark("segment index")
+        let (b, c) = (bvid, cid)
+        s.refresher = { [weak self] in
+            let info = try await BiliAPI.shared.playInfo(bvid: b, cid: c)
+            let fresh = try Self.sameTracks(in: info, video: v, audio: a)
+            await self?.urlsRefreshed(info, fresh, stream: sid)
+            return fresh
+        }
+        if let how = Env.testExpired { s.spoilURLsForTesting(how); log("test: \(how) spoiled, expires \(s.expiry.map { "\($0)" } ?? "?")") }
         let url = HLSProxy.shared.register(s)
         let old = stream
         stream = s
         video = v
         audio = a
-        let fxReady = await prepareAudioFX(stream: s, previous: old, masterURL: url, at: time)
+        fxTask?.cancel()
+        let fx = await prepareAudioFX(stream: s, previous: old, at: time)
         let item = AVPlayerItem(url: url)
         item.preferredForwardBufferDuration = 30
         masker.attach(item)
@@ -315,6 +403,8 @@ final class PlayerController: ObservableObject {
                 guard let self else { return }
                 switch st {
                 case .readyToPlay:
+                    self.mark("ready to play")
+                    self.everReady = true
                     if self.startupTime == nil { self.startupTime = Date().timeIntervalSince(self.loadStarted) }
                     self.phase = .ready
                     if self.audioKind != .standard, !self.audioFollower.active {
@@ -323,8 +413,13 @@ final class PlayerController: ObservableObject {
                         log("\(self.bvid) \(self.audio?.codecName ?? "") audio track \(audible ? "playing" : "missing")")
                     }
                 case .failed:
-                    self.phase = .failed(err?.localizedDescription ?? L("播放失败"))
                     log("\(self.bvid) item failed: \(String(describing: err))")
+                    // Mid-video (often after a sleep, with the network still coming back): load it again where it was.
+                    if self.everReady, self.player.currentItem === it, Date().timeIntervalSince(self.lastRecovery) > 30 {
+                        self.recover()
+                    } else {
+                        self.phase = .failed(err?.localizedDescription ?? L("播放失败"))
+                    }
                 default: break
                 }
             }
@@ -339,12 +434,85 @@ final class PlayerController: ObservableObject {
         attachedAt = Date()
         player.replaceCurrentItem(with: item)
         if time > 0 { await player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) }
-        if fxReady { audioFollower.follow(player) }
+        switch fx {
+        case .ready: audioFollower.follow(player)
+        case .later(let track): loadAudioFXLater(stream: s, track: track)
+        case .off: break
+        }
         if play { player.playImmediately(atRate: rate) }
         if let old { HLSProxy.shared.unregister(old.id) }
         log(String(format: "%@ p%ld %@ %@ %dx%d %@ cdn=%@", bvid, cid, shortQuality(v.id), v.codecs, v.width, v.height,
                    formatBitrate(Double(v.bandwidth)), s.video.urls.first?.host ?? "?"))
     }
+
+    /// The tracks matching `v` / `a` in a newly fetched PlayInfo: same quality, codec and file layout, so
+    /// the segment table built from the old URLs fits the new ones.
+    nonisolated static func sameTracks(in info: PlayInfo, video v: DashTrack, audio a: DashTrack?) throws -> (video: DashTrack, audio: DashTrack?) {
+        func same(_ x: DashTrack, _ y: DashTrack) -> Bool {
+            x.id == y.id && x.codecs == y.codecs && x.initRange == y.initRange && x.indexRange == y.indexRange
+        }
+        guard let nv = info.videos.first(where: { same($0, v) }) else { throw APIError(description: "video track no longer offered") }
+        guard let a else { return (nv, nil) }
+        let audios = info.audios + [info.flac, info.dolby].compactMap { $0 }
+        guard let na = audios.first(where: { same($0, a) }) else { throw APIError(description: "audio track no longer offered") }
+        return (nv, na)
+    }
+
+    /// The proxy signed new URLs for the playing stream: keep the quality list's URLs fresh as well, so
+    /// switching quality or audio later doesn't start from expired ones.
+    private func urlsRefreshed(_ fresh: PlayInfo, _ tracks: (video: DashTrack, audio: DashTrack?), stream sid: String) {
+        guard stream?.id == sid else { return }
+        info = fresh
+        video = tracks.video
+        audio = tracks.audio
+    }
+
+    /// Before building a new stream from the URLs in `info`: if the playing stream's have expired, so have
+    /// those; refreshing it updates `info`, `video` and `audio` too.
+    private func refreshIfStale() async {
+        if let s = stream, s.isStale { _ = await s.refreshURLs() }
+    }
+
+    private var everReady = false
+    private var startLogged = false
+
+    /// Start-up timeline in the log: how long from opening the video to each step.
+    private func mark(_ step: String) {
+        guard !startLogged || step == "playing" else { return }
+        log(String(format: "%@ startup: %@ at %.2f s", bvid, step, Date().timeIntervalSince(loadStarted)))
+    }
+    private var lastRecovery = Date.distantPast
+
+    /// Reloads the current video at the current position with a newly fetched play URL.
+    private func recover() {
+        lastRecovery = Date()
+        let (b, c, t) = (bvid, cid, player.currentTime().seconds)
+        let qn = video?.id, oldAudio = audio
+        phase = .loading
+        loadStarted = Date()
+        log("\(b) recovering at \(Int(t.isFinite ? t : 0))s")
+        Task {
+            // Give the network a moment after a wake.
+            try? await Task.sleep(for: .seconds(2))
+            do {
+                let fresh = try await BiliAPI.shared.playInfo(bvid: b, cid: c)
+                guard b == bvid, c == cid else { return }
+                info = fresh
+                let v = qn.map { fresh.pickVideo(qn: $0, codec: settings.codec) } ?? fresh.pickVideo(order: settings.qualityOrder, codec: settings.codec)
+                let a = oldAudio.flatMap { old in
+                    (fresh.audios + [fresh.flac, fresh.dolby].compactMap { $0 }).first { $0.id == old.id && $0.codecs == old.codecs }
+                } ?? fresh.pickAudio(settings.audioPref)
+                try await attach(video: v, audio: a, at: t.isFinite ? t : 0, play: true)
+            } catch {
+                guard b == bvid, c == cid else { return }
+                phase = .failed(error.localizedDescription)
+                log("\(b) recovery failed: \(error)")
+            }
+        }
+    }
+
+    /// The video's aid, once its details are in (a load started from a card without one).
+    func adoptAid(_ aid: Int) { if self.aid == nil { self.aid = aid } }
 
     /// A quality picked by hand sticks for this video: no automatic stepping down.
     func setQuality(_ qn: Int) {
@@ -356,10 +524,12 @@ final class PlayerController: ObservableObject {
         guard let info, video?.id != qn, info.videos.contains(where: { $0.id == qn }) else { return }
         let t = player.currentTime().seconds
         let wasPlaying = player.rate != 0
-        let v = info.pickVideo(qn: qn, codec: settings.codec)
         phase = .loading
         loadStarted = Date()
         Task {
+            await refreshIfStale()
+            guard let info = self.info else { return }
+            let v = info.pickVideo(qn: qn, codec: settings.codec)
             do { try await attach(video: v, audio: audio, at: t.isFinite ? t : 0, play: wasPlaying) }
             catch { phase = .failed(error.localizedDescription) }
         }
@@ -375,10 +545,12 @@ final class PlayerController: ObservableObject {
     }
 
     private func audioPrefChanged(_ pref: AudioPref) {
-        guard let info, let v = video, let a = info.pickAudio(pref), a != audio else { return }
+        guard let info, video != nil, let a0 = info.pickAudio(pref), a0 != audio else { return }
         let t = player.currentTime().seconds
         let wasPlaying = player.rate != 0
         Task {
+            await refreshIfStale()
+            guard let v = video, let a = self.info?.pickAudio(pref) else { return }
             do { try await attach(video: v, audio: a, at: t.isFinite ? t : 0, play: wasPlaying) }
             catch { phase = .failed(error.localizedDescription) }
             switch audioKind {
@@ -391,10 +563,12 @@ final class PlayerController: ObservableObject {
 
     /// Re-attach the same tracks (used when the CDN node changes).
     func reloadStream() {
-        guard let v = video else { return }
+        guard video != nil else { return }
         let t = player.currentTime().seconds
         let wasPlaying = player.rate != 0
         Task {
+            await refreshIfStale()
+            guard let v = video else { return }
             do { try await attach(video: v, audio: audio, at: t.isFinite ? t : 0, play: wasPlaying) }
             catch { phase = .failed(error.localizedDescription) }
         }
@@ -531,6 +705,7 @@ final class PlayerController: ObservableObject {
     }
 
     private func teardownItem() {
+        fxTask?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
         audioFollower.stop()
@@ -547,6 +722,8 @@ final class PlayerController: ObservableObject {
     private func tick(_ t: Double) {
         guard let item = player.currentItem else { return }
         if t.isFinite { clock.time = t }
+        // 自动: trying another line can cost a slow segment; only while the buffer can take one.
+        if let s = stream, s.node == .auto { s.exploreOK = clock.buffered - clock.time > 15 }
         let d = item.duration.seconds
         if d.isFinite, d > 0 { clock.duration = d } else if let info, info.duration > 0 { clock.duration = info.duration }
         let cur = item.currentTime().seconds

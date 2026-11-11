@@ -39,7 +39,21 @@ enum HangRecorder {
         }
     }
 
+    /// `sample` reads the app's own binary. Run from Downloads, Desktop or Documents (a test build in a project
+    /// folder there), macOS asks the person for access to that folder on the app's behalf, again for each build:
+    /// the stall is still logged, without a sample.
+    private static let canSample: Bool = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = Bundle.main.bundlePath
+        return !["Downloads", "Desktop", "Documents"].contains { path.hasPrefix(home + "/" + $0 + "/") }
+            && ProcessInfo.processInfo.environment["BILIMAC_NOSAMPLE"] == nil
+    }()
+
     private static func record(done: @escaping @Sendable () -> Void) {
+        guard canSample else {
+            append("stall started · not sampled (app runs from a protected folder) · \(context.withLock { $0 })")
+            return done()
+        }
         let fm = FileManager.default
         try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
         let f = DateFormatter()

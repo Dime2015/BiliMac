@@ -10,7 +10,7 @@ enum Env {
     private static let e = ProcessInfo.processInfo.environment
     /// Lists, recommendations and search run signed-out (nothing personal on screen); only play URLs use the login.
     static let demo = e["BILIMAC_DEMO"] != nil
-    /// Start on a page: featured | settings | dynamics | search:<q> | video:<BV…>
+    /// Start on a page: featured | settings | dynamics | downloads | search:<q> | video:<BV…>[:<cid>]
     static let route = e["BILIMAC_ROUTE"]
     /// Keep player chrome visible.
     static let pinChrome = e["BILIMAC_PIN_CHROME"] != nil
@@ -24,6 +24,14 @@ enum Env {
     static let spaceTab = e["BILIMAC_SPACE_TAB"]
     /// Benchmarks: show the window without activating the app, so the Mac stays usable while one runs.
     static let benchQuiet = e["BILIMAC_BENCH_QUIET"] != nil
+    /// Start each stream with spoiled CDN URLs, to check the refresh: `deadline` (already past, refreshed before
+    /// the first request) or `sig` (a bad signature: every host answers 403, refreshed after that).
+    static let testExpired = e["BILIMAC_TEST_EXPIRED"]
+    /// Start a download on launch, to check one end to end:
+    /// `BV…,<both|audio|video>,<qn or 0 for best>,<AVC|HEVC|AV1>,<mp4|mov|m4a|mp3>[,flac|dolby],<folder>`.
+    static let testDownload = e["BILIMAC_TEST_DOWNLOAD"]
+    /// Start every player muted (background checks that have to play).
+    static let mute = e["BILIMAC_MUTE"] != nil
     /// Window content size, e.g. 1440x900.
     static let windowSize: CGSize? = e["BILIMAC_WINDOW"].flatMap { s in
         let p = s.split(separator: "x").compactMap { Double($0) }

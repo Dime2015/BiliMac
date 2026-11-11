@@ -221,6 +221,7 @@ private struct PageContent: View, Equatable {
             case .messages: MessagesPage()
             case .live(let id): LivePage(roomId: id).id(id)
             case .liveHome: LiveHomePage()
+            case .downloads: DownloadsPage()
             case .settings: EmptyView()
             }
         }
@@ -340,6 +341,7 @@ private struct Sidebar: View {
                        live: liveNow.followedCount) { app.go(.dynamics) }
                 NavRow(icon: "tv", title: L("直播"), selected: app.onLivePages, ns: ns) { app.go(.liveHome) }
                 NavRow(icon: "bell", title: L("消息"), selected: app.route == .messages, ns: ns, badge: messages.unread.total) { app.go(.messages) }
+                DownloadsNavRow(selected: app.route == .downloads, ns: ns) { app.go(.downloads) }
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 10)
@@ -367,6 +369,18 @@ struct LogoMark: View {
                 .frame(width: size, height: size)
                 .background(Theme.pink, in: RoundedRectangle(cornerRadius: size * 0.27, style: .continuous))
         }
+    }
+}
+
+/// 下载, with the number of downloads still running. Observes the download list on its own, so the rest of the
+/// sidebar doesn't redraw when a download starts or ends.
+private struct DownloadsNavRow: View {
+    let selected: Bool
+    let ns: Namespace.ID
+    let action: () -> Void
+    @ObservedObject private var downloads = DownloadCenter.shared
+    var body: some View {
+        NavRow(icon: "arrow.down.circle", title: L("下载"), selected: selected, ns: ns, badge: downloads.activeCount, action: action)
     }
 }
 
@@ -558,6 +572,7 @@ private struct IconRail: View {
             }
             RailIcon(icon: "bell", label: L("消息"), selected: app.route == .messages, ns: ns) { app.go(.messages) }
                 .overlay(alignment: .topTrailing) { UnreadBadge(count: messages.unread.total).scaleEffect(0.85).offset(x: 2, y: 4).allowsHitTesting(false) }
+            RailIcon(icon: "arrow.down.circle", label: L("下载"), selected: app.route == .downloads, ns: ns) { app.go(.downloads) }
             Spacer()
             // Only the 精选 / video pages hide the rail; elsewhere it is just the narrow-window sidebar.
             if app.route.usesRail {

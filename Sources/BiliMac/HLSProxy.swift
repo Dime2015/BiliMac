@@ -4,10 +4,12 @@ import Network
 
 /// CDN node to force for video/audio segment requests (same signed path, different host).
 enum CDNNode: String, CaseIterable, Identifiable {
-    case c08 = "08c", hwb, hw, off
+    case auto, c08 = "08c", hwb, hw, off
     var id: String { rawValue }
+    /// The host every request is sent to; nil for 自动 (the play URL's own host first, see `LinePicker`) and 默认.
     var host: String? {
         switch self {
+        case .auto: return nil
         case .c08: return "upos-sz-mirror08c.bilivideo.com"
         case .hwb: return "upos-sz-mirrorhwb.bilivideo.com"
         case .hw: return "upos-sz-mirrorhw.bilivideo.com"
@@ -16,13 +18,28 @@ enum CDNNode: String, CaseIterable, Identifiable {
     }
     var label: String {
         switch self {
+        case .auto: return L("自动（用接口默认节点快速开播，再换到下载最快的线路）")
         case .c08: return L("08c（国内 · 推荐）")
         case .hwb: return L("hwb（华为云）")
         case .hw: return L("hw（华为云）")
         case .off: return L("不改写（使用接口默认海外节点）")
         }
     }
-    var short: String { self == .off ? L("默认") : rawValue }
+    var short: String {
+        switch self {
+        case .off: return L("默认")
+        case .auto: return L("自动")
+        default: return rawValue
+        }
+    }
+
+    /// The same signed URL on another host.
+    static func rewrite(_ url: URL, host: String) -> URL {
+        guard var c = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
+        c.host = host
+        c.port = nil
+        return c.url ?? url
+    }
 
     /// Rewrites upos-* hosts only; PCDN/MCDN URLs (different signing) are left alone.
     func rewrite(_ url: URL) -> URL {
@@ -45,12 +62,107 @@ final class HLSStream {
         var hdr: HDRSignal? = nil
         /// Bytes to overwrite as the file streams through (absolute offset → byte).
         var patches: [Int: UInt8] = [:]
+
+        /// The same track with freshly signed URLs; the host that worked last stays first.
+        func with(_ d: DashTrack, node: CDNNode) -> Track {
+            var fresh = (d.urls.map(node.rewrite) + d.urls).uniqued()
+            let host = urls.first?.host
+            // 自动 may have moved to a host the new URLs don't list.
+            if let host, !fresh.contains(where: { $0.host == host }), let f = fresh.first { fresh.insert(CDNNode.rewrite(f, host: host), at: 0) }
+            return Track(dash: d, urls: fresh.filter { $0.host == host } + fresh.filter { $0.host != host },
+                         segments: segments, hdr: hdr, patches: patches)
+        }
     }
 
     let id: String
-    let video: Track
-    let audio: Track?
     let stats = StreamStats()
+    /// The CDN node the URLs were rewritten for, to rewrite refreshed ones the same way.
+    let node: CDNNode
+    // The tracks' URLs change when they're refreshed, from the proxy's queue, while the player reads them.
+    private let trackLock = NSLock()
+    private var _video: Track
+    private var _audio: Track?
+    var video: Track { trackLock.lock(); defer { trackLock.unlock() }; return _video }
+    var audio: Track? { trackLock.lock(); defer { trackLock.unlock() }; return _audio }
+
+    /// Fetches the same tracks again with newly signed URLs. bilibili's CDN URLs stop working a couple of
+    /// hours after the play URL was fetched (`deadline=`): a video left paused overnight, or through a sleep,
+    /// could play what it had buffered and then never load another byte.
+    var refresher: (@Sendable () async throws -> (video: DashTrack, audio: DashTrack?))?
+    private var refreshing: Task<Bool, Never>?
+    private var lastRefresh = Date.distantPast
+
+    /// When the signed URLs stop working (the earliest `deadline` among the tracks' first URLs).
+    var expiry: Date? {
+        func deadline(_ u: URL?) -> Date? {
+            guard let u, let v = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?
+                .first(where: { $0.name == "deadline" })?.value, let t = Double(v) else { return nil }
+            return Date(timeIntervalSince1970: t)
+        }
+        return [deadline(video.urls.first), deadline(audio?.urls.first)].compactMap { $0 }.min()
+    }
+
+    /// True when the URLs have expired or are about to.
+    var isStale: Bool { expiry.map { $0.timeIntervalSinceNow < 60 } ?? false }
+
+    /// Replaces the tracks' URLs with fresh ones. Concurrent callers share one fetch; a refresh in the last
+    /// 20 s counts as done (a failure right after one isn't an expiry). Returns false if it couldn't refresh.
+    func refreshURLs() async -> Bool {
+        guard let task = refreshTask() else { return true }
+        return await task.value
+    }
+
+    /// The fetch in flight, or a new one; nil when the URLs were refreshed moments ago.
+    private func refreshTask() -> Task<Bool, Never>? {
+        trackLock.lock(); defer { trackLock.unlock() }
+        if let t = refreshing { return t }
+        if Date().timeIntervalSince(lastRefresh) < 20 { return nil }
+        let t = Task { [weak self] () -> Bool in
+            guard let self, let refresher = self.refresher else { return false }
+            do {
+                let fresh = try await refresher()
+                self.finishRefresh(fresh)
+                log("\(self.id): CDN URLs refreshed, valid until \(self.expiry.map { "\($0)" } ?? "?")")
+                return true
+            } catch {
+                self.finishRefresh(nil)
+                log("\(self.id): CDN URL refresh failed: \(error)")
+                return false
+            }
+        }
+        refreshing = t
+        return t
+    }
+
+    /// BILIMAC_TEST_EXPIRED: spoils the URLs the way hours of waiting would.
+    func spoilURLsForTesting(_ how: String) {
+        func spoil(_ t: Track) -> Track {
+            let urls = t.urls.map { u -> URL in
+                guard var c = URLComponents(url: u, resolvingAgainstBaseURL: false) else { return u }
+                c.queryItems = c.queryItems?.map { q in
+                    if how == "deadline", q.name == "deadline" { return URLQueryItem(name: q.name, value: "\(Int(Date().timeIntervalSince1970) - 3600)") }
+                    if how == "sig", q.name == "upsig" { return URLQueryItem(name: q.name, value: String(repeating: "0", count: q.value?.count ?? 32)) }
+                    return q
+                }
+                return c.url ?? u
+            }
+            return Track(dash: t.dash, urls: urls, segments: t.segments, hdr: t.hdr, patches: t.patches)
+        }
+        trackLock.lock(); defer { trackLock.unlock() }
+        _video = spoil(_video)
+        _audio = _audio.map(spoil)
+    }
+
+    private func finishRefresh(_ fresh: (video: DashTrack, audio: DashTrack?)?) {
+        trackLock.lock(); defer { trackLock.unlock() }
+        if let fresh {
+            _video = _video.with(fresh.video, node: node)
+            if let a = fresh.audio, let cur = _audio { _audio = cur.with(a, node: node) }
+            lastRefresh = Date()
+        }
+        refreshing = nil
+    }
+
     /// Leave audio out of the master playlist: the audio plays in its own player (音效处理).
     var videoOnly = false
     /// The whole audio file, once downloaded for the separate audio player; ranges are served from it.
@@ -60,7 +172,14 @@ final class HLSStream {
         get { audioLock.lock(); defer { audioLock.unlock() }; return _audioData }
         set { audioLock.lock(); _audioData = newValue; audioLock.unlock() }
     }
-    init(id: String, video: Track, audio: Track?) { self.id = id; self.video = video; self.audio = audio }
+    /// 自动: video segment requests so far (the proxy's queue only), and whether the buffer can take a trial of
+    /// another line (set by the player).
+    var videoRequests = 0
+    var exploreOK = false
+
+    init(id: String, video: Track, audio: Track?, node: CDNNode) {
+        self.id = id; self._video = video; self._audio = audio; self.node = node
+    }
 
     /// Peak video segment bitrate from the SIDX (bits/s).
     var videoPeak: Int? {
@@ -158,7 +277,8 @@ final class HLSProxy: NSObject {
         c.httpMaximumConnectionsPerHost = 8
         return URLSession(configuration: c, delegate: self, delegateQueue: nil)
     }()
-    private var pipes: [Int: Pipe] = [:]  // keyed by URLSessionTask.taskIdentifier
+    private var pipes: [Int: Pipe] = [:]
+    static let logRequests = ProcessInfo.processInfo.environment["BILIMAC_LOGSEG"] != nil  // keyed by URLSessionTask.taskIdentifier
 
     // Throughput stats for the status line.
     private var statBytes = 0
@@ -166,21 +286,51 @@ final class HLSProxy: NSObject {
     private(set) var lastMbps: Double = 0
 
     func start() throws {
+        let ready = DispatchSemaphore(value: 0)
+        let l = try makeListener(port: .any) { ready.signal() }
+        _ = ready.wait(timeout: .now() + 3)
+        port = l.port?.rawValue ?? 0
+        log("HLS proxy on 127.0.0.1:\(port)")
+    }
+
+    /// Listens on 127.0.0.1. If the listener fails later (it can after a sleep or a network change), it's
+    /// started again on the same port, so the players' URLs keep working.
+    @discardableResult
+    private func makeListener(port: NWEndpoint.Port, onReady: @escaping () -> Void = {}) throws -> NWListener {
         let params = NWParameters.tcp
-        params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
         params.allowLocalEndpointReuse = true
         let l = try NWListener(using: params)
-        let ready = DispatchSemaphore(value: 0)
-        l.stateUpdateHandler = { state in
-            if case .ready = state { ready.signal() }
-            if case .failed(let e) = state { log("listener failed: \(e)"); ready.signal() }
+        var wasReady = false
+        l.stateUpdateHandler = { [weak self, weak l] state in
+            switch state {
+            case .ready:
+                wasReady = true
+                onReady()
+            case .failed(let e):
+                log("listener failed: \(e)")
+                onReady()
+                l?.cancel()
+                guard wasReady, let self, self.port != 0 else { return }
+                self.queue.asyncAfter(deadline: .now() + 1) { self.restartListener() }
+            default: break
+            }
         }
         l.newConnectionHandler = { [weak self] c in self?.accept(c) }
         l.start(queue: queue)
-        _ = ready.wait(timeout: .now() + 3)
-        port = l.port?.rawValue ?? 0
         listener = l
-        log("HLS proxy on 127.0.0.1:\(port)")
+        return l
+    }
+
+    private func restartListener(attempt: Int = 1) {
+        guard let p = NWEndpoint.Port(rawValue: port) else { return }
+        do {
+            try makeListener(port: p)
+            log("HLS proxy restarted on 127.0.0.1:\(port)")
+        } catch {
+            log("HLS proxy restart failed (\(attempt)): \(error)")
+            if attempt < 10 { queue.asyncAfter(deadline: .now() + 2) { self.restartListener(attempt: attempt + 1) } }
+        }
     }
 
     func register(_ s: HLSStream) -> URL {
@@ -232,7 +382,7 @@ final class HLSProxy: NSObject {
         async let v = build(video, video: true)
         var at: HLSStream.Track?
         if let audio { at = try await build(audio) }
-        return HLSStream(id: id, video: try await v, audio: at)
+        return HLSStream(id: id, video: try await v, audio: at, node: node)
     }
 
     // MARK: Connections
@@ -274,17 +424,18 @@ final class HLSProxy: NSObject {
         guard comps.count == 3, comps[0] == "s" else { return respond(c, 404, "not found") }
         lock.lock(); let s = streams[comps[1]]; lock.unlock()
         guard let s else { return respond(c, 404, "unknown stream") }
+        if Self.logRequests { log("req \(comps[2]) \(headers["range"] ?? "")") }
         switch comps[2] {
         case "master.m3u8": respond(c, 200, s.masterPlaylist(), type: "application/vnd.apple.mpegurl", head: method == "HEAD")
         case "video.m3u8": respond(c, 200, s.mediaPlaylist(s.video, file: "video.m4s"), type: "application/vnd.apple.mpegurl", head: method == "HEAD")
         case "audio.m3u8":
             guard let a = s.audio else { return respond(c, 404, "no audio") }
             respond(c, 200, s.mediaPlaylist(a, file: "audio.m4s"), type: "application/vnd.apple.mpegurl", head: method == "HEAD")
-        case "video.m4s": proxy(c, urls: s.video.urls, range: headers["range"], label: "\(s.id)/v", stats: s.stats, video: true, patches: s.video.patches)
+        case "video.m4s": proxy(c, stream: s, range: headers["range"], video: true)
         case "audio.m4s":
-            guard let a = s.audio else { return respond(c, 404, "no audio") }
+            guard s.audio != nil else { return respond(c, 404, "no audio") }
             if let data = s.audioData { return serve(c, data, range: headers["range"], head: method == "HEAD") }
-            proxy(c, urls: a.urls, range: headers["range"], label: "\(s.id)/a", stats: s.stats, video: false)
+            proxy(c, stream: s, range: headers["range"], video: false)
         default: respond(c, 404, "not found")
         }
     }
@@ -312,27 +463,6 @@ final class HLSProxy: NSObject {
         c.send(content: out, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in c.cancel() })
     }
 
-    /// Downloads a whole track (the audio for 音效处理), trying each URL in turn.
-    func fetchWhole(_ t: HLSStream.Track, stats: StreamStats) async throws -> Data {
-        var lastError: Error = APIError(description: "no url")
-        for u in t.urls.uniqued() {
-            var r = URLRequest(url: u)
-            r.setValue(browserUA, forHTTPHeaderField: "User-Agent")
-            r.setValue(biliReferer, forHTTPHeaderField: "Referer")
-            r.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-            do {
-                let (data, resp) = try await URLSession.shared.data(for: r)
-                guard let http = resp as? HTTPURLResponse, http.statusCode == 200 || http.statusCode == 206 else {
-                    lastError = APIError(description: "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)")
-                    continue
-                }
-                stats.add(bytes: data.count, host: u.host ?? "?")
-                return data
-            } catch { lastError = error }
-        }
-        throw lastError
-    }
-
     private func respond(_ c: NWConnection, _ status: Int, _ body: String, type: String = "text/plain", head: Bool = false) {
         let b = Data(body.utf8)
         var h = "HTTP/1.1 \(status) \(status == 200 ? "OK" : "Error")\r\nContent-Type: \(type)\r\n"
@@ -346,6 +476,9 @@ final class HLSProxy: NSObject {
 
     final class Pipe {
         let conn: NWConnection
+        let stream: HLSStream?
+        /// Asked the stream for fresh URLs once already (after every host refused).
+        var refreshed = false
         var urls: [URL]
         let range: String?
         let label: String
@@ -361,16 +494,23 @@ final class HLSProxy: NSObject {
         var patches: [Int: UInt8] = [:]
         /// File offset of the first byte this pipe sends.
         var start = 0
-        init(conn: NWConnection, urls: [URL], range: String?, label: String, stats: StreamStats?, isVideo: Bool) {
-            self.conn = conn; self.urls = urls; self.range = range; self.label = label; self.stats = stats; self.isVideo = isVideo
+        init(conn: NWConnection, stream: HLSStream?, urls: [URL], range: String?, label: String, stats: StreamStats?, isVideo: Bool) {
+            self.conn = conn; self.stream = stream; self.urls = urls; self.range = range; self.label = label; self.stats = stats; self.isVideo = isVideo
             if let range, range.hasPrefix("bytes="), let a = Int(range.dropFirst(6).split(separator: "-").first ?? "") { start = a }
         }
     }
 
-    private func proxy(_ c: NWConnection, urls: [URL], range: String?, label: String, stats: StreamStats?, video: Bool,
-                       patches: [Int: UInt8] = [:]) {
-        let p = Pipe(conn: c, urls: urls, range: range, label: label, stats: stats, isVideo: video)
-        p.patches = patches
+    private func proxy(_ c: NWConnection, stream s: HLSStream, range: String?, video: Bool) {
+        let track = video ? s.video : s.audio
+        var urls = track?.urls ?? []
+        if s.node == .auto {
+            let n = s.videoRequests
+            if video { s.videoRequests += 1 }
+            urls = LinePicker.shared.order(urls, request: n, explore: video && s.exploreOK)
+        }
+        let p = Pipe(conn: c, stream: s, urls: urls, range: range, label: "\(s.id)/\(video ? "v" : "a")",
+                     stats: s.stats, isVideo: video)
+        p.patches = track?.patches ?? [:]
         c.stateUpdateHandler = { [weak self, weak p] st in
             switch st {
             case .failed, .cancelled:
@@ -379,12 +519,38 @@ final class HLSProxy: NSObject {
             default: break
             }
         }
-        queue.async { self.startNext(p) }
+        // Expired URLs (the video sat paused for hours, or the Mac slept): sign new ones before asking the CDN.
+        if s.isStale {
+            p.refreshed = true
+            refreshThenStart(p)
+        } else {
+            queue.async { self.startNext(p) }
+        }
+    }
+
+    /// Gets the stream fresh URLs, then starts the pipe on them (or answers 502 when that fails).
+    private func refreshThenStart(_ p: Pipe) {
+        guard let s = p.stream else { return queue.async { self.startNext(p) } }
+        Task {
+            let ok = await s.refreshURLs()
+            self.queue.async {
+                guard !p.closed else { return }
+                if ok { p.urls = (p.isVideo ? s.video.urls : s.audio?.urls) ?? [] }
+                if p.urls.isEmpty { return self.respond(p.conn, 502, "all upstreams failed") }
+                self.startNext(p)
+            }
+        }
     }
 
     private func startNext(_ p: Pipe) {
         guard !p.closed else { return }
         guard !p.urls.isEmpty else {
+            // Every host refused (403 once the signature expires): try once more with newly signed URLs.
+            if !p.headerSent, !p.refreshed, p.stream?.refresher != nil {
+                p.refreshed = true
+                log("all upstreams failed for \(p.label); refreshing its URLs")
+                return refreshThenStart(p)
+            }
             if !p.headerSent { respond(p.conn, 502, "all upstreams failed") } else { p.conn.cancel() }
             return
         }
@@ -398,6 +564,18 @@ final class HLSProxy: NSObject {
         p.task = t
         pipes[t.taskIdentifier] = p
         t.resume()
+        // A request the CDN doesn't answer at all within 1.5 s (it happens) goes to the next host: the player
+        // itself waited ~5 s before asking again, which was the whole start-up of a video.
+        if !p.urls.isEmpty {
+            queue.asyncAfter(deadline: .now() + 1.5) { [weak self, weak p] in
+                guard let self, let p, self.pipes[t.taskIdentifier] === p, !p.headerSent, !p.closed else { return }
+                log("upstream \(u.host ?? "?") silent for 1.5 s for \(p.label); trying next")
+                if p.stream?.node == .auto, let h = u.host { LinePicker.shared.fail(host: h) }
+                self.pipes[t.taskIdentifier] = nil
+                t.cancel()
+                self.startNext(p)
+            }
+        }
     }
 
     private func send(_ p: Pipe, _ data: Data, final: Bool = false) {
@@ -434,6 +612,7 @@ extension HLSProxy: URLSessionDataDelegate {
             }
             guard http.statusCode == 200 || http.statusCode == 206 else {
                 log("upstream \(http.statusCode) from \(response.url?.host ?? "?") for \(p.label); trying next")
+                if p.stream?.node == .auto, http.statusCode != 403, let h = dataTask.originalRequest?.url?.host { LinePicker.shared.fail(host: h) }
                 pipes[dataTask.taskIdentifier] = nil
                 completionHandler(.cancel)
                 startNext(p)
@@ -472,12 +651,16 @@ extension HLSProxy: URLSessionDataDelegate {
             guard let p = pipes.removeValue(forKey: task.taskIdentifier) else { return }
             if let error, !p.closed {
                 log("upstream error for \(p.label) from \(task.originalRequest?.url?.host ?? "?"): \(error.localizedDescription)")
+                if p.stream?.node == .auto, let h = task.originalRequest?.url?.host { LinePicker.shared.fail(host: h) }
                 if !p.headerSent { return startNext(p) }
                 p.conn.cancel()
                 return
             }
             guard !p.closed else { return }
             let dt = Date().timeIntervalSince(p.started)
+            if p.isVideo, p.stream?.node == .auto, let h = task.originalRequest?.url?.host {
+                LinePicker.shared.record(host: h, bytes: p.bytes, seconds: dt)
+            }
             p.stats?.segment(.init(at: Date(), bytes: p.bytes, seconds: dt, host: task.originalRequest?.url?.host ?? "?", video: p.isVideo))
             if ProcessInfo.processInfo.environment["BILIMAC_LOGSEG"] != nil { log(String(format: "seg %@ %@ %.0fKB in %.2fs = %.1f Mbps via %@", p.label, p.range ?? "-",
                        Double(p.bytes) / 1024, dt, Double(p.bytes) * 8 / max(dt, 0.001) / 1e6,
@@ -550,6 +733,15 @@ final class StreamStats {
     }
 
     var lastSegment: Seg? { lock.lock(); defer { lock.unlock() }; return segs.last(where: { $0.video }) }
+
+    /// Throughput (bits/s) of the last few sizeable video segments from `host` in the last minute; nil with fewer than two.
+    func recentRate(host: String) -> Double? {
+        lock.lock(); defer { lock.unlock() }
+        let cutoff = Date().addingTimeInterval(-60)
+        let recent = segs.filter { $0.video && $0.host == host && $0.at > cutoff && $0.bytes > 256 * 1024 && $0.seconds > 0 }.suffix(4)
+        guard recent.count >= 2 else { return nil }
+        return Double(recent.reduce(0) { $0 + $1.bytes } * 8) / recent.reduce(0) { $0 + $1.seconds }
+    }
     var lastHost: String? { lock.lock(); defer { lock.unlock() }; return segs.last?.host }
 }
 

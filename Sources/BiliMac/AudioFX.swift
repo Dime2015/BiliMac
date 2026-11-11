@@ -1,5 +1,6 @@
 import AVFoundation
 import MediaToolbox
+import os
 
 /// 响度均衡 + 人声增强, applied with an MTAudioProcessingTap on the player item's audio.
 ///
@@ -9,8 +10,11 @@ import MediaToolbox
 /// - Voice: splits stereo into mid (where dialogue sits) and side, lifts presence and trims
 ///   low-mid mud on the mid, and lowers the side a little.
 ///
-/// Parameters are plain Float fields read on the render thread; the render path never allocates.
+/// Parameters are plain Float fields read on the render thread; the render path never allocates. The tap's
+/// `prepare` (called again whenever the player re-prerolls, on another thread) and `process` share the filter
+/// and gain state, so both hold `stateLock` (uncontended in practice: a few nanoseconds per render cycle).
 final class AudioFX: @unchecked Sendable {
+    private let stateLock = OSAllocatedUnfairLock()
     // Settings, written from the main thread.
     var loudnessOn = false
     var voiceOn = false
@@ -66,6 +70,8 @@ final class AudioFX: @unchecked Sendable {
     }
 
     fileprivate func prepare(_ f: AudioStreamBasicDescription) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         sampleRate = Float(f.mSampleRate)
         channels = Int(f.mChannelsPerFrame)
         nonInterleaved = f.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0
@@ -79,6 +85,8 @@ final class AudioFX: @unchecked Sendable {
     }
 
     fileprivate func process(_ abl: UnsafeMutableAudioBufferListPointer, frames: Int) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         let loud = loudnessOn, voice = voiceOn
         guard isFloat, frames > 0, loud || voice || appliedGain != 1 else { return }
         // Planar stereo is what AVFoundation hands taps; fall back to doing nothing otherwise.
@@ -233,10 +241,12 @@ final class AudioFollower {
         ]
         tokens = [NotificationCenter.default.addObserver(forName: AVPlayerItem.timeJumpedNotification, object: main.currentItem,
                                                          queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sync(hard: true) }
+            Task { @MainActor in self?.sync(hard: true) }
         }]
+        // Hops to the main actor rather than asserting it: the assertion (MainActor.assumeIsolated) crashed here
+        // twice, right as the follower took over the sound in the middle of a video.
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sync(hard: false) }
+            Task { @MainActor in self?.sync(hard: false) }
         }
         sync(hard: true)
     }

@@ -28,6 +28,11 @@ APP=build/BiliMac.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/BiliMac"
+# Drop the debug map: it names every object file under this folder (here, inside ~/Downloads). The hang
+# recorder runs /usr/bin/sample on the app, sample opens those files to add line numbers, and macOS then asks
+# for Downloads access on the app's behalf, again after every rebuild (a new ad-hoc signature). Function names
+# stay in the symbol table, so samples are still readable.
+strip -S "$APP/Contents/MacOS/BiliMac"
 # SwiftPM records the deployment target (14.0) as the SDK the binary was built against, and macOS then
 # runs the app in compatibility mode: the old, smaller window buttons and none of the current system
 # look. Record the SDK actually used; the minimum system stays 14.0.
@@ -61,6 +66,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+# Which build this is (shown at the bottom of 设置): when it was built and from which commit, "+" when the
+# working tree had changes not yet committed.
+COMMIT=$(git rev-parse --short HEAD 2>/dev/null || true)
+if [[ -n "$COMMIT" && -n "$(git status --porcelain 2>/dev/null)" ]]; then COMMIT="$COMMIT+"; fi
+/usr/libexec/PlistBuddy -c "Add :BiliMacBuildDate string $(date -u +%Y-%m-%dT%H:%M:%SZ)" "$APP/Contents/Info.plist"
+[[ -n "$COMMIT" ]] && /usr/libexec/PlistBuddy -c "Add :BiliMacCommit string $COMMIT" "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP" >/dev/null
 echo "Built $(pwd)/$APP"
 

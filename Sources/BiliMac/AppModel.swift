@@ -5,7 +5,7 @@ import SwiftUI
 
 enum Route: Hashable {
     case home, featured, dynamics, history, watchLater, favorites(Int?), search(String), video(VideoCard), space(Int),
-         collection(SpaceCollection), messages, live(Int), liveHome, settings
+         collection(SpaceCollection), messages, live(Int), liveHome, settings, downloads
     /// 分区: a tid_v2 (UGC) or a PGC season_type, see `Region`.
     case region(Int)
 
@@ -154,17 +154,22 @@ final class AppModel: ObservableObject {
         if ProcessInfo.processInfo.environment["BILIMAC_NAVBENCH"] != nil { Task { await navBench() } }
         if ProcessInfo.processInfo.environment["BILIMAC_PERFBENCH"] != nil { Task { await perfBench() } }
         if ProcessInfo.processInfo.environment["BILIMAC_HOMETAB"] == "popular" { homeTab = .popular }
+        if let spec = Env.testDownload { Task { await DownloadCenter.testDownload(spec) } }
         if let r = Env.route {
             if r == "featured" { go(.featured) }
             else if r == "settings" { go(.settings) }
             else if r == "dynamics" { go(.dynamics) }
             else if r == "messages" { go(.messages) }
             else if r.hasPrefix("search:") { submitSearch(String(r.dropFirst(7))) }
-            else if r.hasPrefix("video:") { open(VideoCard(bvid: String(r.dropFirst(6)), title: "", cover: nil, owner: "")) }
+            else if r.hasPrefix("video:") {
+                let p = r.dropFirst(6).split(separator: ":")
+                open(VideoCard(bvid: String(p[0]), cid: p.count > 1 ? Int(p[1]) : nil, title: "", cover: nil, owner: ""))
+            }
             else if r.hasPrefix("region:"), let id = Int(r.dropFirst(7)) { go(.region(id)) }
             else if r.hasPrefix("space:"), let mid = Int(r.dropFirst(6)) { go(.space(mid)) }
             else if r.hasPrefix("live:"), let room = Int(r.dropFirst(5)) { go(.live(room)) }
             else if r == "live" { go(.liveHome) }
+            else if r == "downloads" { go(.downloads) }
         }
     }
 
@@ -952,9 +957,22 @@ final class InputRouter {
 
     private func scroll(_ e: NSEvent) -> NSEvent? {
         ScrollActivity.last = Date()
-        guard featuredActive, let win = e.window, win.attachedSheet == nil else { return e }
+        guard let win = e.window, let root = win.contentView, win.attachedSheet == nil else { return e }
+        var hit = root.hitTest(e.locationInWindow)   // hitTest takes the superview's (here the window's) coordinates
+        // Kept-alive pages sit under the shown one, transparent, and AppKit can still pick a hidden page's scroll
+        // view as the one under the pointer: every scroll then went to a page nobody could see, and nothing in the
+        // window scrolled. Hand such a scroll to the scroll view that's actually showing there.
+        if let h = hit, Self.isInvisible(h) {
+            hit = Self.visibleView(in: root, at: e.locationInWindow)
+            var v = hit
+            while let cur = v {
+                if let target = cur as? NSScrollView { target.scrollWheel(with: e); return nil }
+                v = cur.superview
+            }
+        }
+        guard featuredActive else { return e }
         // Let scroll views (up-next column, menus) keep their own scrolling.
-        var v = win.contentView?.hitTest(e.locationInWindow)
+        var v = hit
         while let cur = v { if cur is NSScrollView { return e }; v = cur.superview }
         if !e.momentumPhase.isEmpty { return nil }
         if e.phase.isEmpty {
@@ -969,6 +987,28 @@ final class InputRouter {
             fire(accum < 0)
         }
         return nil
+    }
+
+    /// True when `v` or a view it sits in is hidden or fully transparent (a kept-alive page that isn't shown).
+    private static func isInvisible(_ v: NSView) -> Bool {
+        var cur: NSView? = v
+        while let c = cur {
+            if c.isHidden || c.alphaValue == 0 || (c.layer?.opacity ?? 1) == 0 { return true }
+            cur = c.superview
+        }
+        return false
+    }
+
+    /// AppKit's hit test, skipping hidden and fully transparent views. `point` is in window coordinates.
+    private static func visibleView(in root: NSView, at point: NSPoint) -> NSView? {
+        func search(_ v: NSView) -> NSView? {
+            if v.isHidden || v.alphaValue == 0 || (v.layer?.opacity ?? 1) == 0 { return nil }
+            let p = v.convert(point, from: nil)
+            guard v.bounds.contains(p) || !v.clipsToBounds && !v.subviews.isEmpty else { return nil }
+            for sub in v.subviews.reversed() { if let hit = search(sub) { return hit } }
+            return v.bounds.contains(p) ? v : nil
+        }
+        return search(root)
     }
 
     private func fire(_ forward: Bool) {

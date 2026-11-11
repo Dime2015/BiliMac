@@ -37,6 +37,14 @@ final class DetailModel: ObservableObject {
         Task { if let t = await TintCache.shared.tint(for: card.cover) { tint = t } }
         do {
             let d: VideoDetail
+            // A card that knows its part starts the video now, with the details loading alongside (they took ~0.3 s
+            // before the play URL was even asked for).
+            var early = false
+            if !adopted, let cid = card.cid {
+                player.load(bvid: card.bvid, cid: cid, aid: card.aid)
+                AppModel.shared.setNowPlaying(player, card: card, context: .video)   // stops what played before
+                early = true
+            }
             if let nd = AppModel.shared.nowDetail, nd.bvid == card.bvid { d = nd } else { d = try await BiliAPI.shared.detail(bvid: card.bvid) }
             if closed { return }
             detail = d
@@ -46,6 +54,8 @@ final class DetailModel: ObservableObject {
             if card.cover == nil, let t = await TintCache.shared.tint(for: d.cover) { tint = t }
             if adopted, player.phase != .idle {
                 if case .failed = player.phase { player.retry() } else { player.play() }
+            } else if early, d.pages.isEmpty || d.pages.contains(where: { $0.cid == card.cid }) {
+                player.adoptAid(d.aid)
             } else {
                 let cid = d.pages.first { $0.cid == card.cid }?.cid ?? d.cid
                 player.load(bvid: d.bvid, cid: cid, aid: d.aid)
@@ -175,6 +185,7 @@ private struct VideoInfo: View {
     @State private var expanded = false
     @State private var showFav = false
     @State private var showCoin = false
+    @State private var showDownload = false
 
     var body: some View {
         let d = actions.detail?.bvid == detail.bvid ? actions.detail! : detail
@@ -211,6 +222,15 @@ private struct VideoInfo: View {
                 .floatingPanel(id: "fav-detail", isPresented: $showFav, placement: .below(.leading)) {
                     FavPopover(actions: actions) { showFav = false }
                 }
+                RoundOutlineButton(icon: "arrow.down.to.line", label: L("下载")) { showDownload = true }
+                    .floatingPanel(id: "download-detail", isPresented: $showDownload, placement: .below(.leading)) {
+                        let page = model.page ?? d.pages.first { $0.cid == d.cid }
+                        let multi = d.pages.count > 1
+                        DownloadPanel(bvid: d.bvid, cid: page?.cid ?? d.cid,
+                                      title: multi ? "\(d.title) - P\(page?.page ?? 1) \(page?.part ?? "")" : d.title,
+                                      owner: d.ownerName, cover: d.cover,
+                                      duration: page?.duration ?? d.duration) { showDownload = false }
+                    }
                 RoundOutlineButton(icon: "text.badge.plus", label: L("稍后再看")) { actions.watchLater() }
                 RoundOutlineButton(icon: "link", label: L("复制链接（右键：在浏览器中打开）")) { app.copyLink(model.card) }
                     .contextMenu { Button(L("在浏览器中打开")) { NSWorkspace.shared.open(model.card.url) } }

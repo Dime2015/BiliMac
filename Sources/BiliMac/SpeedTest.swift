@@ -21,7 +21,7 @@ final class SpeedTest: ObservableObject {
             let track = info.pickVideo(qn: 80, codec: .avc)
             guard let base = track.urls.first else { throw APIError(description: L("没有视频地址")) }
             defaultHost = base.host
-            for node in CDNNode.allCases {
+            for node in CDNNode.allCases where node != .auto {
                 running = node
                 let url = node == .off ? base : node.rewrite(base)
                 if let mbps = await RangeProbe.measure(url, seconds: 6) { results[node] = mbps } else { failed.insert(node) }

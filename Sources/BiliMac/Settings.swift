@@ -213,6 +213,8 @@ final class AppSettings: ObservableObject {
     @Published var railAutoHide: Bool { didSet { d.set(railAutoHide, forKey: "railAutoHide") } }
     /// Double-click on the video: false = 应用内全屏, true = 屏幕全屏.
     @Published var doubleClickScreenFull: Bool { didSet { d.set(doubleClickScreenFull, forKey: "doubleClickScreenFull") } }
+    /// Where downloads are saved (default: the Downloads folder).
+    @Published var downloadFolder: URL { didSet { d.set(downloadFolder.path, forKey: "downloadFolder") } }
 
     private init() {
         let d = UserDefaults.standard
@@ -223,7 +225,9 @@ final class AppSettings: ObservableObject {
         d.set(true, forKey: "migratedFromLocal")
         func b(_ k: String, _ def: Bool) -> Bool { d.object(forKey: k) == nil ? def : d.bool(forKey: k) }
         func n(_ k: String, _ def: Double) -> Double { d.object(forKey: k) == nil ? def : d.double(forKey: k) }
-        cdnNode = CDNNode(rawValue: d.string(forKey: "cdnNode") ?? "") ?? .c08
+        downloadFolder = d.string(forKey: "downloadFolder").map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        cdnNode = CDNNode(rawValue: d.string(forKey: "cdnNode") ?? "") ?? .auto
         qualityPreset = QualityPreset(rawValue: d.string(forKey: "qualityPreset") ?? "") ?? .max
         preferHDR = b("preferHDR", false)
         // 1.1.x defaulted to 自动 (soft in a window); the default is now 完整, like the official client.
@@ -268,5 +272,31 @@ final class AppSettings: ObservableObject {
         appearance = AppAppearance(rawValue: d.string(forKey: "appearance") ?? "") ?? .dark
         railAutoHide = b("railAutoHide", true)
         doubleClickScreenFull = b("doubleClickScreenFull", false)
+    }
+}
+
+extension AppSettings {
+    /// Asks for a folder to save downloads in; nil if cancelled.
+    @MainActor static func chooseDownloadFolder() -> URL? {
+        let p = NSOpenPanel()
+        p.canChooseDirectories = true
+        p.canChooseFiles = false
+        p.canCreateDirectories = true
+        p.allowsMultipleSelection = false
+        p.prompt = L("选择")
+        p.message = L("下载的视频和音频保存在这里")
+        p.directoryURL = shared.downloadFolder
+        guard p.runModal() == .OK, let url = p.url else { return nil }
+        shared.downloadFolder = url
+        return url
+    }
+
+    /// The download folder as people know it: "下载" rather than /Users/…/Downloads. Worked out from the path:
+    /// asking the file system for the display name touches the folder, and for Downloads that alone made macOS ask
+    /// the person for access.
+    var downloadFolderName: String {
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        if downloadFolder.standardizedFileURL.path == downloads.standardizedFileURL.path { return L("下载") }
+        return downloadFolder.lastPathComponent
     }
 }

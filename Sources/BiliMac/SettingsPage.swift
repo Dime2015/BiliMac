@@ -64,6 +64,7 @@ struct SettingsPage: View {
                         DanmakuSection().id(SettingsSection.danmaku)
                         AccountSection().id(SettingsSection.account)
                         KeysSection().id(SettingsSection.keys)
+                        VersionFooter()
                     }
                     .frame(maxWidth: 860, alignment: .leading)
                     .padding(.horizontal, 40)
@@ -166,9 +167,10 @@ private struct RouteSection: View {
                             app.nowPlaying?.reloadStream()
                         } label: {
                             VStack(spacing: 1) {
-                                Text(n == .off ? L("默认") : n.rawValue).font(.system(size: 13, weight: .bold))
+                                Text(n.short).font(.system(size: 13, weight: .bold))
                                 Group {
-                                    if test.running == n { Text(L("测速中")) }
+                                    if n == .auto { Text(LinePicker.shared.recentBest.map(LinePicker.short) ?? "—") }
+                                    else if test.running == n { Text(L("测速中")) }
                                     else if let v = test.results[n] { Text(String(format: "%.1fM", v)) }
                                     else if test.failed.contains(n) { Text(L("失败")) }
                                     else { Text("—") }
@@ -207,6 +209,7 @@ private struct RouteSection: View {
         if let h = app.nowPlaying?.stream?.stats.lastHost ?? app.nowPlaying?.stream?.video.urls.first?.host {
             return h.replacingOccurrences(of: ".bilivideo.com", with: "")
         }
+        if s.cdnNode == .auto, let h = LinePicker.shared.recentBest { return h.replacingOccurrences(of: ".bilivideo.com", with: "") }
         return (s.cdnNode.host ?? L("接口默认节点")).replacingOccurrences(of: ".bilivideo.com", with: "")
     }
 }
@@ -460,7 +463,41 @@ private struct GeneralSection: View {
                 }
                 .padding(.vertical, 10)
             }
+            Row(title: L("下载位置"), subtitle: (s.downloadFolder.path as NSString).abbreviatingWithTildeInPath) {
+                PillButton(title: L("在访达中显示")) { NSWorkspace.shared.open(s.downloadFolder) }
+                PillButton(title: L("更改…")) { _ = AppSettings.chooseDownloadFolder() }
+            }
         }
         .onChange(of: language) { _, v in AppLanguage.set(v) }
+    }
+}
+
+/// Version, build time and commit, so it's clear whether the installed app is the latest build.
+private struct VersionFooter: View {
+    private static let info = Bundle.main.infoDictionary ?? [:]
+
+    private var version: String {
+        let v = Self.info["CFBundleShortVersionString"] as? String ?? "?"
+        let b = Self.info["CFBundleVersion"] as? String
+        return "BiliMac \(v)" + (b.map { " (\($0))" } ?? "")
+    }
+
+    private var build: String? {
+        guard let s = Self.info["BiliMacBuildDate"] as? String, let d = ISO8601DateFormatter().date(from: s) else { return nil }
+        let when = d.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
+        guard let c = Self.info["BiliMacCommit"] as? String, !c.isEmpty else { return Lf("构建于 %@", when) }
+        if c.hasSuffix("+") { return Lf("构建于 %@ · %@（含未提交的修改）", when, String(c.dropLast())) }
+        return Lf("构建于 %@ · %@", when, c)
+    }
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(version).font(.system(size: 13, weight: .bold))
+            if let build { Text(build).font(.system(size: 12)) }
+        }
+        .foregroundStyle(Theme.text3)
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
     }
 }
