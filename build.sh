@@ -72,7 +72,18 @@ COMMIT=$(git rev-parse --short HEAD 2>/dev/null || true)
 if [[ -n "$COMMIT" && -n "$(git status --porcelain 2>/dev/null)" ]]; then COMMIT="$COMMIT+"; fi
 /usr/libexec/PlistBuddy -c "Add :BiliMacBuildDate string $(date -u +%Y-%m-%dT%H:%M:%SZ)" "$APP/Contents/Info.plist"
 [[ -n "$COMMIT" ]] && /usr/libexec/PlistBuddy -c "Add :BiliMacCommit string $COMMIT" "$APP/Contents/Info.plist"
-codesign --force --sign - "$APP" >/dev/null
+# macOS remembers privacy grants (the Downloads folder downloads are saved to, for one) by code signature. An
+# ad-hoc signature is a new identity on every build, so each rebuild made macOS ask again. Builds for this Mac
+# are signed with an Apple Development certificate when the keychain has one (or the identity in
+# BILIMAC_SIGN_ID), which keeps the same identity from build to build. The DMG stays ad-hoc: it goes to other
+# people, and the certificate names its owner.
+SIGN_ID=-
+if [[ $DMG == 0 ]]; then
+  SIGN_ID=${BILIMAC_SIGN_ID:-$(security find-identity -v -p codesigning 2>/dev/null | awk '/"Apple Development: /{print $2; exit}')}
+  SIGN_ID=${SIGN_ID:--}
+fi
+codesign --force --timestamp=none --sign "$SIGN_ID" "$APP" >/dev/null
+if [[ $SIGN_ID == - ]]; then echo "Signed ad-hoc"; else echo "Signed with $(codesign -dvv "$APP" 2>&1 | sed -n 's/^Authority=//p' | head -1 | cut -d'(' -f1)"; fi
 echo "Built $(pwd)/$APP"
 
 if [[ $DMG == 1 ]]; then
@@ -90,10 +101,16 @@ if [[ $DMG == 1 ]]; then
 fi
 
 if [[ $INSTALL == 1 ]]; then
-  pkill -x BiliMac 2>/dev/null || true
-  rm -rf /Applications/BiliMac.app
-  ditto "$APP" /Applications/BiliMac.app
+  # Swap the new copy in without quitting a running BiliMac (someone may be watching): copy it next to the old
+  # one, then rename. The running app keeps the files it has open and gets the new version when reopened.
+  NEW=/Applications/.BiliMac.app.new OLD=/Applications/.BiliMac.app.old
+  rm -rf "$NEW" "$OLD"
+  ditto "$APP" "$NEW"
+  [[ -e /Applications/BiliMac.app ]] && mv /Applications/BiliMac.app "$OLD"
+  mv "$NEW" /Applications/BiliMac.app
+  rm -rf "$OLD"
   echo "Installed /Applications/BiliMac.app"
+  if pgrep -x BiliMac >/dev/null; then echo "BiliMac is running: reopen it to use the new build"; fi
 fi
 
 if [[ $RUN == 1 ]]; then
