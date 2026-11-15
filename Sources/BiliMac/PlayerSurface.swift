@@ -265,7 +265,8 @@ struct PlayerSurface<Overlay: View>: View {
         ZStack {
             Color.black
             PlayerPicture(controller: controller, mode: mode)
-            DanmakuOverlay(controller: controller)
+            // Danmaku fly between the title / info strip and the controls, not under them.
+            DanmakuOverlay(controller: controller, topInset: chrome == .full ? topInset + 56 : 0, bottomInset: chrome == .full ? 64 : 0)
             PictureClickLayer(onDoubleClick: onDoubleClick ?? onAppFull) {
                 controller.togglePlay()
                 ui.activity()

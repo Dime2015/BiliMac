@@ -141,7 +141,7 @@ struct DanmakuFilter: Equatable {
     static func sender(_ rule: String) -> String? { rule.hasPrefix("u:") ? String(rule.dropFirst(2)) : nil }
 }
 
-/// Lays danmaku out into lanes (time-based, so seeking just works) and says where each one is at a given time.
+/// Lays danmaku out into lanes (time-based, so seeking just works) and says where each one is when.
 final class DanmakuEngine {
     private struct Placed {
         let index: Int
@@ -152,33 +152,55 @@ final class DanmakuEngine {
     }
 
     private struct Key: Equatable {
-        let count: Int, first: Double, width: CGFloat, height: CGFloat, scale: Double, speed: Double, area: Double, filter: DanmakuFilter
+        let count: Int, first: Double, width: CGFloat, height: CGFloat, top: CGFloat, bottom: CGFloat
+        let scale: Double, speed: Double, area: Double, filter: DanmakuFilter
     }
 
     private var key: Key?
     private var placed: [Placed] = []
     private var laneHeight: CGFloat = 30
-    private var duration: Double = 8
+    private(set) var duration: Double = 8
     private var images: [Int: CGImage] = [:]
     private var imageScale: Double = 0
-    private let fixedDuration = 4.0
+    let fixedDuration = 4.0
+    /// Bumped by every new layout: on-screen danmaku made from an older one are placed again.
+    private(set) var generation = 0
+
+    /// Text size for this player: the 字号 setting, grown with the player's height (up to 1.3× in full screen on a
+    /// laptop) so danmaku stay readable at a distance; in steps, so a window being resized doesn't redraw them all.
+    static func scale(height: CGFloat, setting: Double) -> Double {
+        let grow = min(max(Double(height) / 720, 1), 1.3)
+        return setting * (grow * 20).rounded() / 20
+    }
+
+    /// Seconds a scrolling danmaku takes to cross. 8 s at the 速度 setting for a player up to 1000 pt wide; wider
+    /// ones take longer, so danmaku don't speed up by half in full screen (where they were hard to follow).
+    static func crossing(width: CGFloat, speed: Double) -> Double {
+        let wide = min(pow(max(Double(width) / 1000, 1), 0.7), 1.6)
+        return 8 / max(speed, 0.25) * wide
+    }
 
     private func font(_ d: Danmaku, _ scale: Double) -> NSFont {
         let base = 22 * scale * (d.size >= 30 ? 1.2 : d.size <= 20 ? 0.8 : 1)
         return NSFont.systemFont(ofSize: base, weight: .semibold)
     }
 
-    private func layout(_ list: [Danmaku], size: CGSize, s: AppSettings) {
+    private func layout(_ list: [Danmaku], size: CGSize, insets: (top: CGFloat, bottom: CGFloat), s: AppSettings) {
+        let scale = Self.scale(height: size.height, setting: s.danmakuScale)
         let k = Key(count: list.count, first: list.first?.time ?? 0, width: size.width, height: size.height,
-                    scale: s.danmakuScale, speed: s.danmakuSpeed, area: s.danmakuArea, filter: DanmakuFilter(s))
+                    top: insets.top, bottom: insets.bottom, scale: scale, speed: s.danmakuSpeed, area: s.danmakuArea,
+                    filter: DanmakuFilter(s))
         guard k != key else { return }
-        if imageScale != s.danmakuScale || k.count != key?.count || k.first != key?.first { images.removeAll(); imageScale = s.danmakuScale }
+        if imageScale != scale || k.count != key?.count || k.first != key?.first { images.removeAll(); imageScale = scale }
         key = k
+        generation += 1
         let filter = DanmakuFilter.Compiled(k.filter)
-        duration = 8 / max(s.danmakuSpeed, 0.25)
-        laneHeight = ceil(22 * s.danmakuScale * 1.4)
-        let lanes = max(1, Int(size.height * s.danmakuArea / laneHeight))
-        let fixedLanes = max(1, Int(size.height * 0.5 / laneHeight))
+        duration = Self.crossing(width: size.width, speed: s.danmakuSpeed)
+        laneHeight = ceil(22 * scale * 1.4)
+        // Lanes fill the picture between the bars that cover it (full screen), not under them.
+        let usable = max(laneHeight, size.height - insets.top - insets.bottom)
+        let lanes = max(1, Int(usable * s.danmakuArea / laneHeight))
+        let fixedLanes = max(1, Int(usable * 0.5 / laneHeight))
         let W = size.width
         var scrollLast = [(start: Double, w: CGFloat, v: CGFloat)?](repeating: nil, count: lanes)
         var topLast = [Double](repeating: -100, count: fixedLanes)
@@ -187,7 +209,7 @@ final class DanmakuEngine {
         out.reserveCapacity(list.count)
         for (i, d) in list.enumerated() {
             guard filter.allows(d) else { continue }
-            let w = (d.text as NSString).size(withAttributes: [.font: font(d, s.danmakuScale)]).width + 4
+            let w = (d.text as NSString).size(withAttributes: [.font: font(d, scale)]).width + 4
             if d.mode == 4 || d.mode == 5 {
                 if d.mode == 5, let l = topLast.firstIndex(where: { d.time >= $0 + fixedDuration }) {
                     topLast[l] = d.time
@@ -249,14 +271,24 @@ final class DanmakuEngine {
     struct Sprite {
         let index: Int
         let image: CGImage
-        /// Top-left corner, in points from the top-left of the overlay.
-        let origin: CGPoint
+        let kind: Int          // 0 scroll, 1 top, 2 bottom
+        /// Player time it appears at, and for how long.
+        let start: Double
+        let duration: Double
+        /// Top edge, in points from the top of the overlay.
+        let y: CGFloat
+        /// Left edge: where a scrolling one enters and leaves (it moves at a steady speed in between); a fixed one
+        /// stays at `fromX`.
+        let fromX: CGFloat
+        let toX: CGFloat
     }
 
-    /// What is on screen at `t`: each danmaku's pre-rendered image and where it goes.
-    func sprites(size: CGSize, time t: Double, list: [Danmaku], settings s: AppSettings) -> [Sprite] {
+    /// Danmaku on screen at `t`, and those starting within `lookahead` seconds after it: each one's
+    /// pre-rendered image and its motion (a straight line in player time, so Core Animation can move it).
+    func sprites(size: CGSize, insets: (top: CGFloat, bottom: CGFloat), time t: Double, lookahead: Double,
+                 list: [Danmaku], settings s: AppSettings) -> [Sprite] {
         guard !list.isEmpty, size.width > 50, t.isFinite else { return [] }
-        layout(list, size: size, s: s)
+        layout(list, size: size, insets: insets, s: s)
         // First item that could still be on screen.
         var lo = 0, hi = placed.count
         let earliest = t - max(duration, fixedDuration)
@@ -266,26 +298,25 @@ final class DanmakuEngine {
         }
         var out: [Sprite] = []
         var i = lo
-        while i < placed.count, placed[i].start <= t {
+        while i < placed.count, placed[i].start <= t + lookahead {
             let p = placed[i]
             i += 1
-            let d = list[p.index]
             let age = t - p.start
-            var pt: CGPoint
+            let life = p.kind == 0 ? duration : fixedDuration
+            guard age <= life, let img = image(p.index, list[p.index], scale: imageScale) else { continue }
+            let y: CGFloat, from: CGFloat, to: CGFloat
             switch p.kind {
             case 0:
-                guard age <= duration else { continue }
-                let v = (size.width + p.width) / CGFloat(duration)
-                pt = CGPoint(x: size.width - CGFloat(age) * v, y: CGFloat(p.lane) * laneHeight + 4)
+                y = insets.top + CGFloat(p.lane) * laneHeight + 4
+                from = size.width; to = -p.width
             case 1:
-                guard age <= fixedDuration else { continue }
-                pt = CGPoint(x: (size.width - p.width) / 2, y: CGFloat(p.lane) * laneHeight + 4)
+                y = insets.top + CGFloat(p.lane) * laneHeight + 4
+                from = (size.width - p.width) / 2; to = from
             default:
-                guard age <= fixedDuration else { continue }
-                pt = CGPoint(x: (size.width - p.width) / 2, y: size.height - CGFloat(p.lane + 1) * laneHeight - 56)
+                y = size.height - max(insets.bottom, 48) - CGFloat(p.lane + 1) * laneHeight - 8
+                from = (size.width - p.width) / 2; to = from
             }
-            guard let img = image(p.index, d, scale: s.danmakuScale) else { continue }
-            out.append(Sprite(index: p.index, image: img, origin: pt))
+            out.append(Sprite(index: p.index, image: img, kind: p.kind, start: p.start, duration: life, y: y, fromX: from, toX: to))
         }
         return out
     }
@@ -293,6 +324,9 @@ final class DanmakuEngine {
 
 struct DanmakuOverlay: View {
     @ObservedObject var controller: PlayerController
+    /// Room kept clear at the top and bottom: the bars laid over the picture (full screen).
+    var topInset: CGFloat = 0
+    var bottomInset: CGFloat = 0
     @ObservedObject private var settings = AppSettings.shared
 
     private var avoiding: Bool { settings.danmakuOn && settings.danmakuAvoidPeople && !controller.danmaku.isEmpty }
@@ -300,7 +334,7 @@ struct DanmakuOverlay: View {
     var body: some View {
         Group {
             if settings.danmakuOn, !controller.danmaku.isEmpty {
-                DanmakuLayerView(controller: controller, avoiding: avoiding)
+                DanmakuLayerView(controller: controller, avoiding: avoiding, insets: (topInset, bottomInset))
                     .allowsHitTesting(false)
             }
         }
@@ -310,21 +344,25 @@ struct DanmakuOverlay: View {
     }
 }
 
-/// Moves danmaku on the screen's own refresh (120 Hz on ProMotion). A SwiftUI TimelineView over the player
-/// only got ~20 updates a second, which made them visibly step; here each one is a layer whose position is
-/// set from the player's clock on every display-link frame, so the GPU just recomposites.
+/// Each danmaku is a layer that Core Animation moves along its line, in a layer whose clock is kept on the player's
+/// time. The positions are worked out by the window server for the moment each frame is shown, at the display's
+/// refresh (120 Hz on ProMotion), so a busy main thread can't make them step. Setting them from a display link on
+/// the main thread each frame missed 4% of the frames in full screen, and the skipped steps showed while the eye
+/// followed the text. The main thread now only adds and removes layers, a little ahead of time.
 private struct DanmakuLayerView: NSViewRepresentable {
     @ObservedObject var controller: PlayerController
     @ObservedObject var clock: PlaybackClock
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject var masker: PersonMasker
     let avoiding: Bool
+    let insets: (top: CGFloat, bottom: CGFloat)
 
-    init(controller: PlayerController, avoiding: Bool) {
+    init(controller: PlayerController, avoiding: Bool, insets: (top: CGFloat, bottom: CGFloat)) {
         self.controller = controller
         clock = controller.clock
         masker = controller.masker
         self.avoiding = avoiding
+        self.insets = insets
     }
 
     func makeNSView(context: Context) -> DanmakuNSView { DanmakuNSView() }
@@ -332,6 +370,7 @@ private struct DanmakuLayerView: NSViewRepresentable {
     func updateNSView(_ v: DanmakuNSView, context: Context) {
         v.controller = controller
         v.avoiding = avoiding
+        v.insets = insets
         v.maskVersion = masker.version
         v.playing = clock.playing
         v.render()   // a paused frame still follows seeks, settings and the people mask
@@ -343,21 +382,27 @@ private struct DanmakuLayerView: NSViewRepresentable {
 final class DanmakuNSView: NSView {
     weak var controller: PlayerController?
     var avoiding = false
+    var insets: (top: CGFloat, bottom: CGFloat) = (0, 0)
     var maskVersion = -1
     var playing = false { didSet { link?.isPaused = !playing } }
 
     private let engine = DanmakuEngine()
     private let content = CALayer()
     private let maskLayer = CALayer()
-    private var live: [Int: CALayer] = [:]
+    private var live: [Int: (layer: CALayer, generation: Int)] = [:]
     private var link: CADisplayLink?
     private var maskKey: (version: Int, size: CGSize, rect: CGRect)?
+    private var clockRate: Float = -1
+    /// Layers are added this far ahead of their start (they wait off the edge, or hidden), so adding them
+    /// late by a frame or two never shows.
+    private let lookahead = 0.75
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layer?.addSublayer(content)
         content.anchorPoint = .zero
+        content.masksToBounds = true
         maskLayer.anchorPoint = .zero
         maskLayer.contentsGravity = .resize
     }
@@ -371,8 +416,9 @@ final class DanmakuNSView: NSView {
         super.viewDidMoveToWindow()
         guard window != nil else { stop(); return }
         if link == nil {
+            // Only adds and removes layers and checks the clock; the motion itself is Core Animation's.
             let l = displayLink(target: self, selector: #selector(step))
-            l.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 120)
+            l.preferredFrameRateRange = CAFrameRateRange(minimum: 10, maximum: 30, preferred: 20)
             l.isPaused = !playing
             l.add(to: .main, forMode: .common)
             link = l
@@ -384,7 +430,7 @@ final class DanmakuNSView: NSView {
         super.viewDidChangeBackingProperties()
         let scale = window?.backingScaleFactor ?? 2
         content.contentsScale = scale
-        live.values.forEach { $0.contentsScale = scale }
+        live.values.forEach { $0.layer.contentsScale = scale }
     }
 
     func stop() {
@@ -393,6 +439,20 @@ final class DanmakuNSView: NSView {
     }
 
     @objc private func step(_ l: CADisplayLink) { render() }
+
+    /// Keeps the content layer's own time equal to the player's: local time = (now - beginTime) × speed + timeOffset.
+    /// Re-anchored on a seek, a pause, a speed change or a stall, and if the two clocks drift apart by 10 ms.
+    private func syncClock(_ player: AVPlayer) {
+        let t = player.currentTime().seconds
+        guard t.isFinite, let parent = content.superlayer else { return }
+        let rate = player.currentItem?.timebase.map { Float(CMTimebaseGetRate($0)) } ?? 0
+        let now = CACurrentMediaTime()
+        if rate == clockRate, abs(content.convertTime(now, from: nil) - t) < 0.01 { return }
+        content.beginTime = parent.convertTime(now, from: nil)
+        content.timeOffset = t
+        content.speed = rate
+        clockRate = rate
+    }
 
     func render() {
         guard let controller else { return }
@@ -403,31 +463,57 @@ final class DanmakuNSView: NSView {
         defer { CATransaction.commit() }
         content.frame = bounds
         content.opacity = Float(s.danmakuOpacity)
-        let sprites = engine.sprites(size: size, time: controller.player.currentTime().seconds,
-                                     list: controller.danmaku, settings: s)
+        syncClock(controller.player)
+        let sprites = engine.sprites(size: size, insets: insets, time: controller.player.currentTime().seconds,
+                                     lookahead: lookahead, list: controller.danmaku, settings: s)
+        let generation = engine.generation
         var keep = Set<Int>()
         keep.reserveCapacity(sprites.count)
         let scale = window?.backingScaleFactor ?? 2
         for sp in sprites {
             keep.insert(sp.index)
-            let l: CALayer
-            if let have = live[sp.index] {
-                l = have
-            } else {
-                l = CALayer()
+            if let have = live[sp.index], have.generation == generation { continue }
+            let l = live[sp.index]?.layer ?? {
+                let l = CALayer()
                 l.anchorPoint = .zero
                 l.contentsScale = scale
                 content.addSublayer(l)
-                live[sp.index] = l
-            }
-            if (l.contents as AnyObject?) !== sp.image { l.contents = sp.image }
+                return l
+            }()
+            live[sp.index] = (l, generation)
+            l.contents = sp.image
             // Images are rendered at 2 px per point.
             l.bounds = CGRect(x: 0, y: 0, width: CGFloat(sp.image.width) / 2, height: CGFloat(sp.image.height) / 2)
-            l.position = sp.origin
+            l.removeAllAnimations()
+            // Outside its time the layer shows its own values: off the right edge, or hidden.
+            // beginTime 0 would mean "now" to Core Animation, hence the floor.
+            let begin = max(sp.start, 0.0001)
+            if sp.kind == 0 {
+                l.position = CGPoint(x: size.width + 1, y: sp.y)
+                let a = CABasicAnimation(keyPath: "position.x")
+                a.fromValue = sp.fromX
+                a.toValue = sp.toX
+                a.beginTime = begin
+                a.duration = sp.duration
+                a.isRemovedOnCompletion = false
+                // At the display's full rate (120 Hz on ProMotion), not the 60 the system may otherwise pick.
+                a.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+                l.add(a, forKey: "move")
+            } else {
+                l.position = CGPoint(x: sp.fromX, y: sp.y)
+                l.opacity = 0
+                let a = CABasicAnimation(keyPath: "opacity")
+                a.fromValue = 1
+                a.toValue = 1
+                a.beginTime = begin
+                a.duration = sp.duration
+                a.isRemovedOnCompletion = false
+                l.add(a, forKey: "show")
+            }
         }
         if live.count != keep.count {
             for (i, l) in live where !keep.contains(i) {
-                l.removeFromSuperlayer()
+                l.layer.removeFromSuperlayer()
                 live[i] = nil
             }
         }
