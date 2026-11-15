@@ -13,6 +13,8 @@ final class PlayerLayerNSView: NSView {
         playerLayer.backgroundColor = NSColor.black.cgColor
     }
     required init?(coder: NSCoder) { fatalError() }
+    /// Only draws; clicks belong to the SwiftUI controls over the picture (see SuperResLayerView).
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 struct VideoLayer: NSViewRepresentable {

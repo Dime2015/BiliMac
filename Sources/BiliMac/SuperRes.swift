@@ -64,6 +64,10 @@ final class SuperResLayerView: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// Only draws. As an AppKit view it otherwise took every click over the picture, ahead of the SwiftUI drawn
+    /// on top of it (the 弹幕设置 panel's switches, polls): the click fell through to the player and paused it.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
     // MARK: Lifecycle
 
     func attach(item newItem: AVPlayerItem?, sourceSize size: CGSize) {
