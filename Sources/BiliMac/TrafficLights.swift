@@ -49,13 +49,13 @@ final class TrafficLights {
         for b in buttons {
             b.postsFrameChangedNotifications = true
             observers.append(nc.addObserver(forName: NSView.frameDidChangeNotification, object: b, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.apply() }
+                onMainThread { self?.apply() }
             })
         }
         for name in [NSWindow.didResizeNotification, NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didExitFullScreenNotification] {
             observers.append(nc.addObserver(forName: name, object: w, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.apply() }
+                onMainThread { self?.apply() }
             })
         }
         apply()
@@ -98,7 +98,7 @@ struct WindowAccessor: NSViewRepresentable {
             guard let w = window else { return }
             // Below this the layout can't fit and SwiftUI would centre an overflowing page, clipping both sides.
             w.contentMinSize = NSSize(width: RootView.minSize.width, height: RootView.minSize.height)
-            MainActor.assumeIsolated { TrafficLights.shared.attach(w) }
+            onMainThread { TrafficLights.shared.attach(w) }
         }
     }
 }

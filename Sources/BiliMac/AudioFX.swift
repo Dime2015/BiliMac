@@ -243,10 +243,8 @@ final class AudioFollower {
                                                          queue: .main) { [weak self] _ in
             Task { @MainActor in self?.sync(hard: true) }
         }]
-        // Hops to the main actor rather than asserting it: the assertion (MainActor.assumeIsolated) crashed here
-        // twice, right as the follower took over the sound in the middle of a video.
         timer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.sync(hard: false) }
+            onMainThread { self?.sync(hard: false) }
         }
         sync(hard: true)
     }

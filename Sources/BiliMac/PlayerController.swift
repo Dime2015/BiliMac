@@ -260,7 +260,7 @@ final class PlayerController: ObservableObject {
         player.volume = settings.volume
         if Env.mute { player.isMuted = true }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 4), queue: .main) { [weak self] t in
-            MainActor.assumeIsolated { self?.tick(t.seconds) }
+            onMainThread { self?.tick(t.seconds) }
         }
         reasonObserver = player.observe(\.reasonForWaitingToPlay) { [weak self] p, _ in
             let r = p.reasonForWaitingToPlay?.rawValue
@@ -282,7 +282,7 @@ final class PlayerController: ObservableObject {
             }
         }
         ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
+            onMainThread {
                 self?.sample()
                 self?.considerStepUp()
             }
@@ -437,7 +437,7 @@ final class PlayerController: ObservableObject {
         }]
         tokens.forEach(NotificationCenter.default.removeObserver)
         tokens = [NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
+            onMainThread {
                 self?.beat(force: true)
                 self?.onEnd?()
             }

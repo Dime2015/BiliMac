@@ -891,7 +891,7 @@ final class InputRouter {
 
     func install() {
         NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { [weak self] e in
-            MainActor.assumeIsolated {
+            onMainThread {
                 guard let self else { return e }
                 return e.type == .keyDown ? self.key(e) : self.scroll(e)
             }

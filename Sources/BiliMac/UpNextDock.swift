@@ -161,7 +161,7 @@ struct PointerTracker: NSViewRepresentable {
             watch = nil
             if on {
                 watch = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
-                    MainActor.assumeIsolated {
+                    onMainThread {
                         guard let self else { return }
                         guard let w = self.window, w.isVisible else { self.set(false); return }
                         if !self.bounds.contains(self.convert(w.mouseLocationOutsideOfEventStream, from: nil)) { self.set(false) }

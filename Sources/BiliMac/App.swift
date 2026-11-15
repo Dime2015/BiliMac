@@ -55,10 +55,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ n: Notification) {
         do { try HLSProxy.shared.start() } catch { log("proxy start failed: \(error)") }
         NSApp.setActivationPolicy(.regular)
-        MainActor.assumeIsolated { AppSettings.shared.appearance.apply() }
+        onMainThread { AppSettings.shared.appearance.apply() }
         if !Env.benchQuiet { NSApp.activate(ignoringOtherApps: true) }
-        MainActor.assumeIsolated { InputRouter.shared.install() }
-        MainActor.assumeIsolated { HangRecorder.start() }
+        onMainThread { InputRouter.shared.install() }
+        onMainThread { HangRecorder.start() }
         if let size = Env.windowSize {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 if let w = NSApp.windows.first(where: { $0.canBecomeMain }) {

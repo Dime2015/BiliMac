@@ -76,6 +76,22 @@ enum AppLanguage {
     }
 }
 
+/// Runs main-actor code from a callback AppKit or Foundation makes on the main thread outside any Swift task: a
+/// Timer, a display link, KVO or a notification delivered on the main queue, an event monitor, an app-delegate method.
+///
+/// Use this, not `MainActor.assumeIsolated`. That asks the Swift runtime which executor is current, and the runtime
+/// answers from a per-thread record of the job it is running. On macOS 27 that record is sometimes left behind on the
+/// main thread, pointing at a job long gone, and assumeIsolated crashed reading it (EXC_BAD_ACCESS at 0x1e in
+/// swift_task_isMainExecutorImpl, from timers in AudioFollower and PlayerController, seconds or minutes into a run).
+/// Here the operating system says whether this is the main thread, and on the main thread outside a task the code
+/// that runs is main-actor code. The body then runs exactly as assumeIsolated runs it once its check passes.
+func onMainThread<T>(_ body: @MainActor () throws -> T) rethrows -> T {
+    precondition(Thread.isMainThread, "onMainThread called off the main thread")
+    return try withoutActuallyEscaping(body) { (fn: @escaping @MainActor () throws -> T) throws -> T in
+        try unsafeBitCast(fn, to: (() throws -> T).self)()
+    }
+}
+
 func log(_ s: String) {
     let t = String(format: "%.3f", Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1000))
     FileHandle.standardError.write("[\(t)] \(s)\n".data(using: .utf8)!)
