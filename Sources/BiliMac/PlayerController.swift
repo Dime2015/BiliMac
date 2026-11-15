@@ -274,6 +274,7 @@ final class PlayerController: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.clock.playing = st == .playing
+                KeepAwake.shared.set(self, playing: st != .paused)
                 if st == .playing, !self.startLogged { self.startLogged = true; self.mark("playing") }
                 let waiting = st == .waitingToPlayAtSpecifiedRate
                 if waiting != self.clock.waiting { self.clock.waiting = waiting; self.waitingChanged(waiting) }
@@ -289,6 +290,7 @@ final class PlayerController: ObservableObject {
     }
 
     deinit {
+        KeepAwake.shared.set(ObjectIdentifier(self), playing: false)
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         ticker?.invalidate()
     }
@@ -746,6 +748,7 @@ final class PlayerController: ObservableObject {
         startWatch?.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        KeepAwake.shared.set(self, playing: false)
         audioFollower.stop()
         masker.attach(nil)
         itemObservers.removeAll()

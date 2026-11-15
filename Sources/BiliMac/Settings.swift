@@ -164,6 +164,8 @@ final class AppSettings: ObservableObject {
     var qualityOrder: [Int] { qualityPreset.order(hdr: preferHDR) }
     @Published var codec: CodecPref { didSet { d.set(codec.rawValue, forKey: "codec") } }
     @Published var resumePlayback: Bool { didSet { d.set(resumePlayback, forKey: "resumePlayback") } }
+    /// 播放时不休眠: keep the display on while something plays (see KeepAwake).
+    @Published var keepAwake: Bool { didSet { d.set(keepAwake, forKey: "keepAwake"); KeepAwake.shared.settingChanged() } }
     @Published var reportHistory: Bool { didSet { d.set(reportHistory, forKey: "reportHistory") } }
     /// 首页「推荐」from the phone app's feed, once authorized (see AppFeedAuth); falls back to the web feed.
     @Published var appFeed: Bool { didSet { d.set(appFeed, forKey: "appFeed") } }
@@ -240,6 +242,7 @@ final class AppSettings: ObservableObject {
         autoDowngrade = b("autoDowngrade", true)
         codec = CodecPref(rawValue: d.string(forKey: "codec") ?? "") ?? .auto
         resumePlayback = b("resumePlayback", true)
+        keepAwake = b("keepAwake", true)
         reportHistory = b("reportHistory", true)
         appFeed = b("appFeed", true)
         featuredAutoNext = b("featuredAutoNext", true)

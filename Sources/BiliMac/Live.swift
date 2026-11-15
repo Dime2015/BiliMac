@@ -338,9 +338,16 @@ final class LiveController: ObservableObject {
         player.volume = AppSettings.shared.volume
         rateObs = player.observe(\.timeControlStatus) { [weak self] p, _ in
             let on = p.timeControlStatus == .playing
-            Task { @MainActor in self?.playing = on }
+            let active = p.timeControlStatus != .paused
+            Task { @MainActor in
+                guard let self else { return }
+                self.playing = on
+                KeepAwake.shared.set(self, playing: active)
+            }
         }
     }
+
+    deinit { KeepAwake.shared.set(ObjectIdentifier(self), playing: false) }
 
     func start() async {
         do {
@@ -460,6 +467,7 @@ final class LiveController: ObservableObject {
         liveChat.stop()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        KeepAwake.shared.set(self, playing: false)
     }
 
     func send(_ text: String) async -> Bool {

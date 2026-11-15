@@ -257,6 +257,7 @@ private struct PlaybackSection: View {
                     .font(.system(size: 12)).foregroundStyle(Theme.text3)
                     .padding(.vertical, 8)
             }
+            ToggleRow(title: L("播放时不休眠"), subtitle: L("播放视频或直播时屏幕保持常亮、Mac 不进入睡眠；暂停后按系统设置照常休眠"), isOn: $s.keepAwake)
             ToggleRow(title: L("从上次观看的位置继续播放"), isOn: $s.resumePlayback)
             ToggleRow(title: L("同步观看历史到哔哩哔哩账号"), subtitle: L("和官方客户端共用历史记录与续播进度"), isOn: $s.reportHistory)
             ToggleRow(title: L("精选：播完自动下一个"), isOn: $s.featuredAutoNext)

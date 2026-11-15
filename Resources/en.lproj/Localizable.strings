@@ -546,6 +546,8 @@
 "按 B 站测得的响度把每个视频调到相近的音量，切换视频不用再调音量" = "Uses bilibili's loudness measurements to play every video at a similar volume, so you don't reach for the volume between videos";
 "突出对白、压低背景声，适合口播、访谈和 Vlog" = "Brings dialogue forward and pushes background sound back; good for talks, interviews and vlogs";
 "开启音效后，音频会先整段下载，再与画面同步播放；起播可能慢 1–2 秒。Hi-Res 无损和杜比全景声音轨保持原声，不做处理" = "With audio effects on, the audio is downloaded in full and kept in sync with the picture; playback may take 1–2 s longer to start. Hi-Res lossless and Dolby Atmos tracks play untouched";
+"播放时不休眠" = "Keep awake while playing";
+"播放视频或直播时屏幕保持常亮、Mac 不进入睡眠；暂停后按系统设置照常休眠" = "The screen stays on and the Mac doesn't sleep while a video or live room plays; when paused it sleeps as your system settings say";
 "从上次观看的位置继续播放" = "Resume where you left off";
 "同步观看历史到哔哩哔哩账号" = "Sync watch history to your bilibili account";
 "和官方客户端共用历史记录与续播进度" = "Shares history and resume points with the official apps";
