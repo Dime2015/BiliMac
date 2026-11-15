@@ -197,6 +197,7 @@ struct PlayerSurface<Overlay: View>: View {
                 Color.black
                 PlayerPicture(controller: controller, mode: mode)
                 DanmakuOverlay(controller: controller)
+                PictureClickLayer(onDoubleClick: onDoubleClick ?? onAppFull) { controller.togglePlay() }
                 PhaseOverlay(controller: controller)
                 FlashView(controller: controller)
                 if settings.showStats {
@@ -225,9 +226,6 @@ struct PlayerSurface<Overlay: View>: View {
                 case .ended: ui.pointerLeft()
                 }
             }
-            .gesture(TapGesture(count: 2).onEnded { (onDoubleClick ?? onAppFull)?() }.exclusively(before: TapGesture().onEnded {
-                controller.togglePlay()
-            }))
             ControlsBar(controller: controller, mode: mode, onAppFull: onAppFull, onScreenFull: onScreenFull,
                         accessory: barAccessory, solid: true)
         }
@@ -268,6 +266,10 @@ struct PlayerSurface<Overlay: View>: View {
             Color.black
             PlayerPicture(controller: controller, mode: mode)
             DanmakuOverlay(controller: controller)
+            PictureClickLayer(onDoubleClick: onDoubleClick ?? onAppFull) {
+                controller.togglePlay()
+                ui.activity()
+            }
 
             // Scrims live under every piece of chrome, never above it.
             VStack(spacing: 0) {
@@ -350,10 +352,6 @@ struct PlayerSurface<Overlay: View>: View {
             case .ended: ui.pointerLeft()
             }
         }
-        .gesture(TapGesture(count: 2).onEnded { (onDoubleClick ?? onAppFull)?() }.exclusively(before: TapGesture().onEnded {
-            controller.togglePlay()
-            ui.activity()
-        }))
         .onAppear {
             ui.clock = controller.clock
             ui.activity()
@@ -504,6 +502,20 @@ private struct PhaseOverlay: View {
 }
 
 // MARK: - Controls
+
+/// Click on the picture: play / pause; double-click: full screen. A layer of its own, under every control over the
+/// picture. Never put these gestures on a view that contains buttons: on macOS a container's double-click gesture
+/// takes the clicks meant for the buttons inside it (in full screen the bar's 弹幕, 统计信息, … buttons paused or
+/// resumed the video instead of doing their job).
+struct PictureClickLayer: View {
+    var onDoubleClick: (() -> Void)?
+    var onClick: (() -> Void)?
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .gesture(TapGesture(count: 2).onEnded { onDoubleClick?() }.exclusively(before: TapGesture().onEnded { onClick?() }))
+    }
+}
 
 struct ChromeIcon: View {
     let icon: String

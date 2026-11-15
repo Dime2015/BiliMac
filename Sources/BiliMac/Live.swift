@@ -528,6 +528,8 @@ struct LivePage: View {
             Color.black
             VideoLayer(player: live.player)
             if settings.danmakuOn { LiveDanmakuCanvas(layer: live.danmakuLayer) }
+            // Under the controls, not on the whole player: see PictureClickLayer.
+            PictureClickLayer(onDoubleClick: { NSApp.keyWindow?.toggleFullScreen(nil) })
             if let e = live.error {
                 VStack(spacing: 10) {
                     if let c = live.info?.cover {
@@ -549,7 +551,6 @@ struct LivePage: View {
             case .ended: hover = false
             }
         }
-        .onTapGesture(count: 2) { NSApp.keyWindow?.toggleFullScreen(nil) }
         .environment(\.colorScheme, .dark)
     }
 
